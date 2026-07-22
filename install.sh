@@ -14,7 +14,8 @@
 set -euo pipefail
 
 info() { printf '  %s\n' "$*"; }
-head() { printf '\n== %s ==\n' "$*"; }
+# Not named `head`: that would shadow the `head` binary this script pipes into.
+section() { printf '\n== %s ==\n' "$*"; }
 warn() { printf '  warning: %s\n' "$*" >&2; }
 die() {
   printf '\nerror: %s\n' "$*" >&2
@@ -44,7 +45,7 @@ ask_silent() {
 }
 
 # ----------------------------------------------------------------- 1. platform
-head "platform"
+section "platform"
 
 # Overridable so tests can point these at a fixture instead of the real
 # machine; real runs always use the actual files.
@@ -113,7 +114,7 @@ pkg_install() {
 }
 
 # --------------------------------------------------------- 2. git, curl, node
-head "git, curl"
+section "git, curl"
 
 if command -v git >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   info "already present   git $(git --version | grep -oE '[0-9.]+' | head -1), curl"
@@ -122,7 +123,7 @@ else
   pkg_install git curl
 fi
 
-head "node.js (>= 20)"
+section "node.js (>= 20)"
 
 node_ok() {
   command -v node >/dev/null 2>&1 || return 1
@@ -153,19 +154,72 @@ else
 fi
 
 # ------------------------------------------------------------------- 3. pi
-head "pi coding agent"
+section "pi coding agent"
+
+# A distro-packaged Node leaves npm's global prefix at /usr/local, which is
+# root-owned: `npm install -g` dies with EACCES. Installing under sudo instead
+# would leave root-owned files in $HOME's npm cache and break later self-updates,
+# so point npm at a per-user prefix - the same shape nvm-installed Node already
+# has - and put its bin dir on PATH for the rest of this run.
+NPM_USER_PREFIX="$HOME/.npm-global"
+
+npm_prefix_writable() {
+  local prefix="$1"
+  [ -n "$prefix" ] || return 1
+  # The two directories npm actually writes into for a global install. A missing
+  # one is fine as long as npm can create it, i.e. its parent is writable.
+  local dir
+  for dir in "$prefix/lib/node_modules" "$prefix/bin"; do
+    while [ ! -e "$dir" ] && [ "$dir" != "/" ]; do dir="$(dirname "$dir")"; done
+    [ -w "$dir" ] || return 1
+  done
+}
+
+# Appends the PATH line for $NPM_USER_PREFIX/bin to the profile of whichever
+# shell the user actually logs into, so `pi` survives this terminal.
+persist_npm_path() {
+  local shell_name profile line
+  shell_name="$(basename "${SHELL:-sh}")"
+  case "$shell_name" in
+    fish)
+      profile="$HOME/.config/fish/config.fish"
+      line="fish_add_path $NPM_USER_PREFIX/bin"
+      mkdir -p "$(dirname "$profile")"
+      ;;
+    zsh)  profile="$HOME/.zshrc";  line="export PATH=\"$NPM_USER_PREFIX/bin:\$PATH\"" ;;
+    bash) profile="$HOME/.bashrc"; line="export PATH=\"$NPM_USER_PREFIX/bin:\$PATH\"" ;;
+    *)    profile="$HOME/.profile"; line="export PATH=\"$NPM_USER_PREFIX/bin:\$PATH\"" ;;
+  esac
+  if [ -f "$profile" ] && grep -qF "$NPM_USER_PREFIX/bin" "$profile"; then
+    info "already on PATH   $NPM_USER_PREFIX/bin (via $profile)"
+    return
+  fi
+  printf '\n# added by mla-pi install.sh: npm global installs without sudo\n%s\n' "$line" >>"$profile"
+  info "added to PATH     $NPM_USER_PREFIX/bin (in $profile - open a new shell to pick it up)"
+}
 
 if command -v pi >/dev/null 2>&1; then
   info "already present   pi $(pi --version 2>/dev/null || echo unknown)"
 else
+  NPM_PREFIX="$(npm config get prefix 2>/dev/null || true)"
+  if ! npm_prefix_writable "$NPM_PREFIX"; then
+    info "npm's global prefix ($NPM_PREFIX) is not writable by you."
+    info "switching npm to $NPM_USER_PREFIX so global installs need no sudo."
+    mkdir -p "$NPM_USER_PREFIX/lib" "$NPM_USER_PREFIX/bin"
+    npm config set prefix "$NPM_USER_PREFIX" || die "could not set npm prefix to $NPM_USER_PREFIX. Set it by hand ('npm config set prefix ~/.npm-global'), add ~/.npm-global/bin to PATH, and re-run this script."
+    export PATH="$NPM_USER_PREFIX/bin:$PATH"
+    persist_npm_path
+  fi
+
   info "installing        pi (npm install -g @earendil-works/pi-coding-agent)"
   npm install -g @earendil-works/pi-coding-agent || die "pi install failed. If the error mentions npm's cache (ENOENT under _cacache), run 'npm cache clean --force' and re-run this script. Otherwise check https://pi.dev for the current install method."
-  command -v pi >/dev/null 2>&1 || die "pi installed but is not on PATH - check your npm global bin directory is in PATH."
+  hash -r 2>/dev/null || true
+  command -v pi >/dev/null 2>&1 || die "pi installed but is not on PATH. Add \"\$(npm config get prefix)/bin\" to your PATH and re-run this script."
   info "installed         pi $(pi --version)"
 fi
 
 # ------------------------------------------------------------------- 4. gh CLI
-head "GitHub CLI"
+section "GitHub CLI"
 
 if command -v gh >/dev/null 2>&1; then
   info "already present   gh $(gh --version | head -1 | grep -oE '[0-9.]+' | head -1)"
@@ -193,7 +247,7 @@ else
 fi
 
 # ------------------------------------------------------------ 5. OpenRouter key
-head "OpenRouter API key"
+section "OpenRouter API key"
 
 AGENT_DIR="${PI_CODING_AGENT_DIR:-${XDG_CONFIG_HOME:+$XDG_CONFIG_HOME/pi}}"
 AGENT_DIR="${AGENT_DIR:-$HOME/.pi}"
@@ -247,7 +301,7 @@ else
 fi
 
 # --------------------------------------------------------- 6. git + gh identity
-head "git identity"
+section "git identity"
 
 GIT_NAME="$(git config --global user.name || true)"
 GIT_EMAIL="$(git config --global user.email || true)"
@@ -262,7 +316,7 @@ else
   info "set               $GIT_NAME <$GIT_EMAIL>"
 fi
 
-head "GitHub authentication"
+section "GitHub authentication"
 
 if gh auth status >/dev/null 2>&1; then
   info "already authenticated"
@@ -272,7 +326,7 @@ else
 fi
 
 # --------------------------------------------------------------- 7. the package
-head "mla-pi package"
+section "mla-pi package"
 
 if pi list 2>/dev/null | grep -qF "$REPO_SLUG"; then
   info "already installed"
@@ -293,7 +347,7 @@ info "resolved root     $PKG_ROOT"
 bash "$PKG_ROOT/scripts/bootstrap.sh"
 
 # ------------------------------------------------------------------- 8. report
-head "done"
+section "done"
 
 node "$PKG_ROOT/scripts/doctor.mjs" || true
 

@@ -17,9 +17,11 @@ REQUIRED=(
 )
 
 info() { printf '  %s\n' "$*"; }
-head() { printf '\n%s\n' "$*"; }
+# Not named `head`: that would shadow the `head` binary. install.sh learned this
+# the hard way - a `| head -1` inside a version string printed a section banner.
+section() { printf '\n%s\n' "$*"; }
 
-head "mla-pi bootstrap"
+section "mla-pi bootstrap"
 info "package root: $ROOT"
 
 # ------------------------------------------------------------------ check pi
@@ -38,7 +40,7 @@ case "$PI_VERSION" in
 esac
 
 # ------------------------------------------------------- install companions
-head "companion packages"
+section "companion packages"
 
 INSTALLED="$(pi list 2>/dev/null || true)"
 CHANGED=0
@@ -61,7 +63,7 @@ done
 # ------------------------------------------------------------ model routing
 # apply-models exits non-zero when nothing resolved. That is not a reason to abort
 # - the packages are already installed and useful - but it must not read as success.
-head "OpenRouter model routing"
+section "OpenRouter model routing"
 ROUTING_OK=1
 if ! node "$ROOT/scripts/apply-models.mjs"; then
   ROUTING_OK=0
@@ -73,17 +75,17 @@ if ! node "$ROOT/scripts/apply-models.mjs"; then
 fi
 
 # ------------------------------------------------------------ search curator
-head "search curator"
+section "search curator"
 node "$ROOT/scripts/apply-web-search.mjs"
 
 # --------------------------------------------------------------------- doctor
 # The last word on whether this machine is actually set up, rather than on
 # whether this script reached its end.
-head "checks"
+section "checks"
 node "$ROOT/scripts/doctor.mjs" || true
 
 # ------------------------------------------------------------------- summary
-head "done"
+section "done"
 if [ "$CHANGED" -eq 1 ]; then
   info "Restart pi so the newly installed packages register."
 else
