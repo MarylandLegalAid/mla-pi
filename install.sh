@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # mla-pi turnkey installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/<MLA-ORG>/mla-pi/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/MarylandLegalAid/mla-pi/main/install.sh | bash
 #
 # Takes a bare WSL (Ubuntu) or Linux (debian/fedora/arch family) shell to a
 # working pi session with the mla-pi skills loaded. Idempotent: safe to re-run,
@@ -21,7 +21,7 @@ die() {
   exit 1
 }
 
-REPO_SLUG="<MLA-ORG>/mla-pi"
+REPO_SLUG="MarylandLegalAid/mla-pi"
 
 # --------------------------------------------------------------- interactivity
 # curl | bash has no usable stdin - every prompt reads from the controlling

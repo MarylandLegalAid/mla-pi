@@ -7,9 +7,9 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/<MLA-ORG>/mla-pi.git"
+    "url": "git+https://github.com/MarylandLegalAid/mla-pi.git"
   },
-  "homepage": "https://github.com/<MLA-ORG>/mla-pi#readme",
+  "homepage": "https://github.com/MarylandLegalAid/mla-pi#readme",
   "keywords": [
     "pi-package",
     "pi",

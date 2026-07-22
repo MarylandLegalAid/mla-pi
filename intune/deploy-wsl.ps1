@@ -19,7 +19,7 @@
        when prompted (this can be anything - it does not need to match their
        Windows login).
     2. Paste this into that window:
-         curl -fsSL https://raw.githubusercontent.com/<MLA-ORG>/mla-pi/main/install.sh | bash
+         curl -fsSL https://raw.githubusercontent.com/MarylandLegalAid/mla-pi/main/install.sh | bash
 
   Enabling Windows features can require a reboot before WSL actually works.
   This script tracks its own progress in the registry so it picks up where it

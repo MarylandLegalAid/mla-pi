@@ -74,7 +74,7 @@ else
   warn(
     "mla-pi registered",
     "not in settings.packages - running from a clone?",
-    "pi install git:github.com/<MLA-ORG>/mla-pi",
+    "pi install git:github.com/MarylandLegalAid/mla-pi",
   );
 
 // ------------------------------------------------------------------ 3. agents
@@ -248,7 +248,7 @@ try {
     timeout: 10_000,
   }).trim();
   if (out.startsWith("stale")) {
-    warn("routing freshness", out, `pi update git:github.com/<MLA-ORG>/mla-pi && node ${join(ROOT, "scripts", "apply-models.mjs")}`);
+    warn("routing freshness", out, `pi update git:github.com/MarylandLegalAid/mla-pi && node ${join(ROOT, "scripts", "apply-models.mjs")}`);
   } else {
     pass("routing freshness", out || "up to date");
   }

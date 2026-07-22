@@ -11,7 +11,7 @@ On a Linux machine, or Windows via WSL ("Ubuntu" from the Start menu — ask you
 admin if you don't have it yet), open a terminal and run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/<MLA-ORG>/mla-pi/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MarylandLegalAid/mla-pi/main/install.sh | bash
 ```
 
 It sets up everything: the pi agent itself, this package, and the tools it
@@ -60,7 +60,7 @@ committing, and refuses if it finds one.
 ## Keeping it up to date
 
 ```sh
-pi update git:github.com/<MLA-ORG>/mla-pi
+pi update git:github.com/MarylandLegalAid/mla-pi
 ```
 
 Occasionally the model routing changes (a price change, a better model becomes

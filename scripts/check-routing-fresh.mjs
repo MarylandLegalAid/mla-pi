@@ -24,7 +24,7 @@ async function main() {
   const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
   const REMOTE_URL =
     process.env.MLA_PI_ROUTING_URL ??
-    "https://raw.githubusercontent.com/<MLA-ORG>/mla-pi/main/config/models.json";
+    "https://raw.githubusercontent.com/MarylandLegalAid/mla-pi/main/config/models.json";
   const TIMEOUT_MS = 2500;
 
   const localPath = join(ROOT, "config", "models.json");
@@ -43,7 +43,7 @@ async function main() {
     const res = await fetch(REMOTE_URL, { signal: controller.signal });
     clearTimeout(timer);
     if (!res.ok) {
-      // Includes the placeholder <MLA-ORG> URL 404ing before the org does its
+      // Includes the placeholder MarylandLegalAid URL 404ing before the org does its
       // find-replace at publish time - treated the same as no network.
       console.log(`offline (fetch returned ${res.status})`);
       process.exit(0);
@@ -53,7 +53,7 @@ async function main() {
       console.log("fresh");
     } else {
       console.log(
-        "stale - update: pi update git:github.com/<MLA-ORG>/mla-pi && " +
+        "stale - update: pi update git:github.com/MarylandLegalAid/mla-pi && " +
           `node ${join(ROOT, "scripts", "apply-models.mjs")}`,
       );
     }

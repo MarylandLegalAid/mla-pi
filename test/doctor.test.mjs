@@ -28,7 +28,7 @@ const HEALTHY = {
   defaultModel: "deepseek/deepseek-v4-pro",
   defaultThinkingLevel: "high",
   packages: [
-    "git:github.com/<MLA-ORG>/mla-pi",
+    "git:github.com/MarylandLegalAid/mla-pi",
     "npm:pi-subagents",
     "npm:@juicesharp/rpiv-ask-user-question",
     "npm:pi-web-access",
