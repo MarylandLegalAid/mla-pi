@@ -16,6 +16,8 @@ const INSTALL_SH = join(REPO, "install.sh");
 // PATH missing everything except a couple of named stubs.
 const BASH = execFileSync("/bin/sh", ["-c", "command -v bash"], { encoding: "utf8" }).trim();
 const GREP = execFileSync("/bin/sh", ["-c", "command -v grep"], { encoding: "utf8" }).trim();
+// Empty string if not installed. See pathWithManagers for why this is on the isolated PATH.
+const GETTEXT = execFileSync("/bin/sh", ["-c", "command -v gettext || true"], { encoding: "utf8" }).trim();
 
 test("install.sh has valid bash syntax", () => {
   execFileSync(BASH, ["-n", INSTALL_SH], { stdio: "pipe" });
@@ -65,13 +67,23 @@ function detectPlatform({ osReleaseFields, isWsl = false, path = process.env.PAT
 }
 
 /**
- * A PATH containing only `grep` (needed for the WSL /proc/version check) plus
- * fake stubs for the named package managers - nothing else, so a manager left
- * off this list is genuinely unresolvable, not just shadowed.
+ * A PATH containing only `grep` (needed for the WSL /proc/version check) and
+ * `gettext` (see below) plus fake stubs for the named package managers - nothing
+ * else, so a manager left off this list is genuinely unresolvable, not just shadowed.
+ *
+ * gettext looks out of place on a PATH this deliberately bare, but leaving it off
+ * is a fork bomb on Fedora. When install.sh runs a command missing from this PATH,
+ * Fedora's bash fires its PackageKit `command_not_found_handle`, which shells out to
+ * `gettext` to localize the "command not found" message. With gettext also off the
+ * PATH, that call misses too - re-entering the handler, which calls gettext again,
+ * recursing without bound until the machine is out of processes. Resolving gettext
+ * lets the handler finish and return a plain 127, exactly as a bare lookup would.
+ * It is not a package manager, so it does not affect what these tests actually probe.
  */
 function pathWithManagers(managers) {
   const dir = tmp("piwf-pm-");
   symlinkSync(GREP, join(dir, "grep"));
+  if (GETTEXT) symlinkSync(GETTEXT, join(dir, "gettext"));
   for (const name of managers) {
     writeFileSync(join(dir, name), "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
   }
