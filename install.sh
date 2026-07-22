@@ -159,7 +159,7 @@ if command -v pi >/dev/null 2>&1; then
   info "already present   pi $(pi --version 2>/dev/null || echo unknown)"
 else
   info "installing        pi (npm install -g @earendil-works/pi-coding-agent)"
-  npm install -g @earendil-works/pi-coding-agent || die "pi install failed. Check https://pi.dev for the current install method."
+  npm install -g @earendil-works/pi-coding-agent || die "pi install failed. If the error mentions npm's cache (ENOENT under _cacache), run 'npm cache clean --force' and re-run this script. Otherwise check https://pi.dev for the current install method."
   command -v pi >/dev/null 2>&1 || die "pi installed but is not on PATH - check your npm global bin directory is in PATH."
   info "installed         pi $(pi --version)"
 fi
