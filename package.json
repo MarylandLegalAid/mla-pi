@@ -1,25 +1,29 @@
 {
-  "name": "pi-workflow",
+  "name": "mla-pi",
   "version": "0.1.0",
-  "description": "Four-stage agentic development workflow for the pi coding agent: groundwork, blueprint, build, yeet.",
+  "description": "Turnkey pi coding agent workflow for Maryland Legal Aid: plan, build, and ship with OpenRouter-routed subagents.",
   "license": "MIT",
-  "author": "jeffcottj",
+  "author": "Maryland Legal Aid",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jeffcottj/pi-workflow.git"
+    "url": "git+https://github.com/<MLA-ORG>/mla-pi.git"
   },
-  "homepage": "https://github.com/jeffcottj/pi-workflow#readme",
+  "homepage": "https://github.com/<MLA-ORG>/mla-pi#readme",
   "keywords": [
     "pi-package",
     "pi",
     "pi-coding-agent",
     "skills",
-    "workflow"
+    "workflow",
+    "mla"
   ],
   "pi": {
     "skills": [
       "./skills"
+    ],
+    "extensions": [
+      "./extensions"
     ]
   },
   "pi-subagents": {
@@ -27,11 +31,15 @@
       "./agents"
     ]
   },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "validate": "node scripts/validate.mjs",
     "doctor": "node scripts/doctor.mjs",
     "apply-models": "node scripts/apply-models.mjs",
-    "suggest-models": "node scripts/suggest-models.mjs"
+    "suggest-models": "node scripts/suggest-models.mjs",
+    "check-routing": "node scripts/check-routing-fresh.mjs"
   }
 }

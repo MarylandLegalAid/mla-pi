@@ -1,12 +1,12 @@
-# pi-workflow tool catalog
-# Probed by /skill:groundwork. See catalog/README.md for the entry schema.
+# mla-pi tool catalog
+# Probed by /skill:plan. See catalog/README.md for the entry schema.
 #
 # `install` is the default command; `install_debian` / `install_fedora` /
-# `install_arch` override it on that distro family. groundwork detects the family
+# `install_arch` override it on that distro family. plan detects the family
 # and picks one - it never offers a command for a package manager the machine
 # does not have. Assumes Node 24 and .NET present.
 #
-# Rule: if any install variant contains sudo, `sudo` MUST be true. groundwork
+# Rule: if any install variant contains sudo, `sudo` MUST be true. plan
 # never runs it.
 
 tools:
@@ -227,7 +227,7 @@ tools:
 
   # ---------------------------------------------------------------- MCP servers
   # kind: mcp entries require pi-mcp-adapter. Confirm the adapter's config format
-  # before automating these - groundwork must surface the manual step rather than
+  # before automating these - plan must surface the manual step rather than
   # running an unverified command.
   - id: mcp-adapter
     name: pi MCP adapter
@@ -244,7 +244,7 @@ tools:
     kind: mcp
     detect: "pi list | grep -q microsoft-learn"
     install: "MANUAL"
-    install_notes: "Requires pi-mcp-adapter. Configure the Microsoft Learn MCP endpoint per the adapter's README, then restart pi. groundwork must print this as a manual step, not run a command."
+    install_notes: "Requires pi-mcp-adapter. Configure the Microsoft Learn MCP endpoint per the adapter's README, then restart pi. plan must print this as a manual step, not run a command."
     sudo: false
     scope: global
     domains: [azure, power-platform, microsoft, docs]

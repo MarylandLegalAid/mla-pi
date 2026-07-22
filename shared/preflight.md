@@ -1,7 +1,6 @@
 # Preflight
 
-Every pi-workflow skill runs this first. Do not skip steps. Do not proceed past a
-STOP.
+Every mla-pi skill runs this first. Do not skip steps. Do not proceed past a STOP.
 
 ## 1. Capability check
 
@@ -16,7 +15,7 @@ Confirm the tools you need are actually available in this session:
 If `ask_user_question` or `subagent` is missing, print exactly this and **STOP**:
 
 ```
-pi-workflow needs a companion package that is not installed:
+mla-pi needs a companion package that is not installed:
 
   pi install npm:pi-subagents
   pi install npm:@juicesharp/rpiv-ask-user-question
@@ -57,6 +56,9 @@ parent of the `skills/` directory containing this skill).
 - If `scripts/apply-models.mjs` has been run, `subagents.agentOverrides` already
   pins these. Pass `model` explicitly on each delegation anyway — it costs nothing
   and survives a machine where bootstrap was never run.
+- **Routing freshness**, once per session, not per skill invocation: run
+  `node scripts/check-routing-fresh.mjs`. On `stale`, print its one-line update
+  command. On `offline`, say nothing. Never block on this.
 
 ## 3. Locate artifacts
 
@@ -89,7 +91,7 @@ parent of the `skills/` directory containing this skill).
 One compact line, then get to work:
 
 ```
-pi-workflow/<skill> · <project-root> · groundwork ok · blueprint ok · build in_progress
+mla-pi/<skill> · <project-root> · plan ok · build in_progress
 ```
 
 Report prior-stage status from `state.json`. If a prior stage this skill depends on

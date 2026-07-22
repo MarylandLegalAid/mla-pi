@@ -1,12 +1,12 @@
 ---
 name: yeet
-description: Commit and push to main, safely. Audits gitignore, scans the staged diff for secrets, shows exactly what will and will not be committed, writes a conventional commit message, and pushes. Refuses to continue if anything looks like a credential. Use when work is done and verified.
+description: Commit and ship, safely. Confirms once per repo whether to push straight to main or open a branch for review, then remembers that choice. Audits gitignore, scans the staged diff for secrets, shows exactly what will and will not be committed, writes a conventional commit message, and pushes. Refuses to continue if anything looks like a credential. Use when work is done and verified.
 ---
 
 # yeet
 
-Stage 4 of 4. Assumes the repo is or will become public, and that planning docs
-must never leave the machine through git.
+Assumes the repo is or will become public, and that planning docs must never
+leave the machine through git.
 
 Read `shared/preflight.md` from this package root and follow it now. Then read
 `shared/asking.md`.
@@ -15,11 +15,23 @@ Read `shared/preflight.md` from this package root and follow it now. Then read
 
 ## 1. Repo checks
 
-- In a git repo? If not, stop.
-- On `main`? If not, ask: switch, merge into main, or push this branch instead.
-- Remote configured? If not, stop and say what to add.
-- Behind the remote? `git pull --rebase` first. **Stop on conflict** — resolving
-  someone else's conflict unattended is not this skill's job.
+In a git repo, with a remote configured? If not, stop and say what to add.
+
+**Determine the target** from `git config --local mla.yeet-target`:
+
+- **Unset** — ask once (`ask_user_question`): push straight to `main` (simple,
+  right for a repo one person owns and runs), or open a branch for review
+  (right once more than one person touches this repo, or the change is risky
+  enough to want a second look). Write the answer to that key
+  (`git config --local mla.yeet-target main|branch`) and proceed — later runs
+  here follow it silently. Override for one run by saying so ("yeet to a
+  branch this time"); say "change my yeet default" to re-ask and overwrite it.
+- **`main`** — if not on `main`, ask: switch, merge in, or push this branch
+  once instead. Behind the remote? `git pull --rebase` first, **stopping on
+  conflict** — resolving someone else's conflict unattended isn't this skill's job.
+- **`branch`** — use the current branch if already on one, else create one
+  named for the change. No rebase-behind check: a fresh branch has no
+  upstream to conflict with.
 
 ## 2. Audit .gitignore
 
@@ -86,32 +98,31 @@ checks:
 
 ```
 COMMITTING  12 files  +814 -62
-  src/api/auth.ts                    +180
-  tests/api/auth.test.ts             +210
-  ...
+  src/api/auth.ts   +180
 
 EXCLUDED (gitignored)
-  .pi-workflow/          planning artifacts - hand-carried, never committed
-  .env.local             secrets
-  dist/                  build artifacts
+  .pi-workflow/     planning artifacts - hand-carried, never committed
+  .env.local        secrets
 ```
 
 ## 7. Commit message
 
-Conventional commit. Derive the subject from the **actual diff**, plus package
-names from `state.json` when present. Body: what changed and why, one bullet per
-area. No emoji. No AI co-author trailer unless asked.
-
-Delegate to `pi-workflow.pw-scribe` for the wording if the diff is large; you still own the
-final text.
+Conventional commit (`type(scope): subject`), imperative mood, derived from the
+**actual diff** plus package names from `state.json` when present. Body: what
+changed and why, one bullet per area. No emoji, no AI co-author trailer unless
+asked, no description of work that is not in the diff.
 
 Show the message and allow an edit via `ask_user_question` before committing.
 
 ## 8. Commit and push
 
-Commit, then `git push origin main`. Report the SHA and the remote URL.
+Commit. Then, per the target from §1:
+- **`main`**: `git push origin main`.
+- **`branch`**: `git push -u origin <branch>`. If `gh` is authenticated, offer
+  to open a pull request; if not, print the compare URL.
 
-If the push is rejected, **report the real error**. Do not retry with `--force`.
+Report the SHA and where it went. If the push is rejected, **report the real
+error**. Do not retry with `--force`.
 
 ## 9. Close
 
@@ -122,9 +133,11 @@ Update `state.json`: `stages.yeet.status = "complete"`, record the SHA.
 ## Hard rules
 
 - Never force-push. Never rewrite history unprompted.
-- Never commit `.pi-workflow/`. If it ever appears staged, that is a bug — stop and
-  report rather than working around it.
+- Never commit `.pi-workflow/`. If it ever appears staged, that is a bug — stop
+  and report rather than working around it.
 - Never bypass the secret scan, for any reason, on any request.
 - Never write a commit message that overstates what changed.
-- Never commit work you were not asked to commit — if the tree contains unrelated
-  changes, surface them and ask.
+- Never commit work you were not asked to commit — if the tree contains
+  unrelated changes, surface them and ask.
+- Never silently switch a repo's remembered `mla.yeet-target` — only on an
+  explicit "change my yeet default" request.

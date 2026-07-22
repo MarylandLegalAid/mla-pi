@@ -1,232 +1,151 @@
 ---
 name: build
-description: Implement a blueprint plan. Reads the sharded plan, orders work packages by their dependency graph, runs each wave as parallel subagents, gates every package on tests plus a reviewer subagent on a different model, commits each completed package locally, and verifies the app actually runs. Stops for decision points and manual steps. Use after blueprint, in a fresh context.
+description: Implement a plan. Works through work packages inline by default, in dependency order, delegating to parallel subagents only when packages are genuinely independent and substantial, or would flood context. Gates every package on its tests, commits it locally, then runs one reviewer pass over the whole diff on a different model before reporting. Kills and retries a stuck package once, then stops and reports rather than escalating further. Stops for decision points and manual steps. Use after plan, in a fresh context.
 ---
 
 # build
 
-Stage 3 of 4. Executes the plan. Keeps going unless genuinely blocked.
+Executes `.pi-workflow/plan/`. Keeps going unless genuinely blocked.
 
 Read `shared/preflight.md` from this package root and follow it now. Then read
 `shared/artifacts.md` and `shared/plan-shard-schema.md`.
 
 ---
 
-## Phase A — load and verify
+## 1. Load and verify
 
-### A1. Read the plan, not the shards
+Read `plan/00-overview.md` in full. Skim every shard's frontmatter and Goal line
+to see the shape of the whole plan before starting — package count, dependency
+graph, wave sizes.
 
-Read `plan/00-overview.md` in full. Read only the **frontmatter and Goal line** of
-each shard.
+**Validate**: acyclic `depends_on`, every referenced id exists, `owns` disjoint
+within each wave, acceptance criteria non-empty. A malformed plan is `plan`'s
+defect — **report it and STOP.** Do not repair it and do not work around it.
 
-**Do not read shard bodies into your context.** Bodies go to workers. You hold the
-overview, the graph, and the status — that is what lets a 20-package plan finish
-without exhausting your context window.
+**Working tree**: if dirty, show the diff summary and ask: commit via
+`/skill:yeet` first, stash, or proceed anyway. Must be clean if you intend
+`worktree: true` for a delegated wave — pi-subagents requires it.
 
-### A2. Validate
+**Resume**: read `state.json.packages`, announce what is already complete, start
+at the first incomplete package. Never redo a `complete` package.
 
-Check: acyclic `depends_on`, all referenced ids exist, `owns` disjoint within each
-wave, acceptance criteria non-empty.
+## 2. Work through packages
 
-A malformed plan is blueprint's defect. **Report it and STOP.** Do not repair the
-plan and do not work around it.
+A wave is every package whose dependencies are all `complete`. Within a wave:
 
-### A3. Working tree
+**Default: implement inline**, one package at a time. Read that package's shard
+body now — not the whole plan's bodies up front, just the one you're working —
+implement its Steps, match the conventions it cites, write and run its tests,
+typecheck and lint per the overview's commands, and verify every acceptance
+criterion yourself by running it.
 
-If dirty, show the diff summary and ask: commit first via `/skill:yeet`, stash, or
-proceed anyway.
-
-If you intend to use `worktree: true` for parallel isolation, the tree **must** be
-clean — pi-subagents requires it.
-
-### A4. Resume
-
-Read `state.json.packages`. Announce what is already complete and start at the
-first incomplete package. **Never redo a `complete` package.**
-
----
-
-## Phase B — wave execution
-
-### B1. Build the wave
-
-A wave is every package whose dependencies are all `complete`.
-
-### B2. Launch
-
-One `pi-workflow.pw-worker` per package, all at once:
+**Delegate to `mla-pi.mla-worker` instead** when, for the current wave, two or
+more pending packages are independent and each substantial enough to be worth a
+fresh context, or a package's own work (large generated code, long exploration)
+would flood your context more than the summary you'd get back. Launch every
+eligible package in the wave at once:
 
 ```
 subagent({
-  tasks: [ { agent: "pi-workflow.pw-worker", model: <roles.worker.model>,
+  tasks: [ { agent: "mla-pi.mla-worker", model: <roles.worker.model>,
              task: "Implement work package <id>. Read .pi-workflow/plan/00-overview.md
                     and .pi-workflow/plan/<id>.md in full first. You may only create or
                     modify files matching that package's `owns` globs. Throwaway
-                    diagnostics - selector probes, one-off requests, print-the-shape
-                    scripts - go in .pi-workflow/scratch/<id>/, never inside `owns`.
-                    Bound every command you run well under your own command timeout;
-                    one hung command can eat a fifth of this package's budget. Verify
+                    diagnostics go in .pi-workflow/scratch/<id>/, never inside `owns`.
+                    Bound every command well under your own command timeout. Verify
                     every acceptance criterion by running it before reporting done." },
            ... ],
-  concurrency: <wave size>,
-  context: "fresh",
+  concurrency: <wave size>, context: "fresh",
   timeoutMs: <(shard.timeout_min ?? limits.packageTimeoutMin) * 60000>,
-  turnBudget: <limits.turnBudget>,
-  toolBudget: <limits.toolBudget>,
-  control: <limits.control>
+  turnBudget: <limits.turnBudget>, toolBudget: <limits.toolBudget>, control: <limits.control>
 })
 ```
 
-**Set `concurrency` to the wave size.** pi-subagents defaults it to 4, which would
-silently cap a workflow configured for no cap (`limits.maxParallel: 0`). If
-`maxParallel` is a positive integer, use that instead.
+**Set `concurrency` to the wave size** — pi-subagents defaults it to 4, which
+would silently cap `limits.maxParallel: 0` (unlimited). Narrate what each
+delegated package is doing and summarize its result in a sentence or two when
+it lands — do not let delegation go opaque. The gate below is the same
+regardless of who wrote the code.
 
-`context: "fresh"` is deliberate — shard self-containment is the whole design.
+## 3. Gate and commit each package
 
-### B3. Gate each package
+You verify, never the worker's self-report:
 
-The **orchestrator** verifies, never the worker's self-report:
+1. **Scope** — changed files are inside `owns`. A violation fails the package.
+2. **Tests** for this package, plus the full suite if fast. Typecheck and lint
+   repo-wide if the overview names commands for them.
+3. **On failure**, fix it yourself (inline) or send the specific findings to a
+   fresh `mla-pi.mla-worker` (delegated), once. A second failure on the same
+   package: mark `blocked`, continue with independent packages, report at the end.
+4. **Read the file list before staging.** `inspect_*`, `test_*`, `tmp_*`, or
+   numbered variants of one another are debugging litter that belonged in
+   `.pi-workflow/scratch/<id>/` — delete them, say so, never commit them.
+5. `git add` only the package's files, then commit:
+   `feat(auth): session cookie endpoints [03-auth-endpoints]`. Record the SHA in
+   `state.json`. **Never `git push`** — that is yeet's job.
+6. `manual: true` packages: stop, print exactly what the user must do and how
+   you'll verify it, wait, then re-verify before continuing.
 
-1. **Scope** — files changed are inside `owns`. A violation fails the package.
-2. **Typecheck** and **lint** repo-wide, using the commands from the overview.
-3. **Tests** for this package, plus the full suite if it is fast.
-4. **Review:**
+Continue to the next wave. There is no approval gate between waves — only
+between a twice-failed package and a `manual` one.
 
-   ```
-   subagent({ agent: "pi-workflow.pw-reviewer", model: <roles.reviewer.model>, context: "fresh",
-              task: "Review the diff for work package <id> against its acceptance
-                     criteria in .pi-workflow/plan/<id>.md. Diff: <git diff>." })
-   ```
+## 4. Runaway detection
 
-   `reviewer` must not **resolve** to the same model as `worker` — checked after
-   fallback, not in the config file. Preflight has already established this; if it
-   reported a collapse, you stopped there and are not reading this line.
+Per `config/limits.json`. Catches a stuck agent; does not ration work.
 
-**On failure:** send the specific findings to a fresh `pi-workflow.pw-worker` (attempt 2). On a
-second failure, escalate once:
+**A timeout is not a test failure.** A failing test tells you what's wrong, so a
+retry with those findings can succeed. A timeout only tells you the clock ran
+out. On timeout:
+
+1. **Establish what survived** — nothing commits until the gate passes, so the
+   working tree still has it. `git status --short`, diff the package's `owns`.
+2. **Say what got done**, concretely. "Timed out" alone is not a report.
+3. **Judge stuck vs undersized.** Stuck: no real progress, churning diff,
+   repeated identical calls — retry once with the findings, like a test
+   failure. Undersized: real progress, killed mid-work — **do not retry
+   unchanged**, it dies at the same point.
+4. **Undersized: ask** — split the package, raise `timeout_min` for this
+   package only, take it manual, or skip and mark `blocked`. Never silently
+   raise the global `packageTimeoutMin` for one slow package — that removes the
+   guard from every other one.
+5. **One retry only.** If it also times out or fails, **stop the whole build
+   and report**: what was attempted, what stalled, current state, your
+   recommendation. A human adjudicates a genuinely stuck package faster than a
+   third model would.
+
+`turnBudget`, `toolBudget`, `control.*` are pi-subagents' native loop guards —
+pass them on every delegated launch, and watch for the same signals yourself
+when working inline. At `softBudgetUsd`, finish the in-flight wave, then ask:
+continue / raise / stop. Never abort mid-package. No usage data reported? Say
+so once and treat the soft budget as disabled — never estimate.
+
+## 5. Final review
+
+When every package is complete, one reviewer pass over the whole build — not
+one per package:
 
 ```
-subagent({ agent: "oracle", model: <roles.oracle.model>,
-           task: "Worker and reviewer disagree twice on package <id>. Diagnose the
-                  real problem. Findings: <...>. Do not edit anything." })
+subagent({ agent: "mla-pi.mla-reviewer", model: <roles.reviewer.model>, context: "fresh",
+           task: "Review the full diff against .pi-workflow/plan/00-overview.md and
+                  every package's acceptance criteria. Diff: <git diff <start>..HEAD>." })
 ```
 
-Then mark `blocked`, continue with packages that do not depend on it, and stop to
-report at the end of the wave.
+`reviewer` must not **resolve** to the same model as `worker` — checked after
+fallback, not in the config file; preflight already established this. Fix what's
+real. Tell the user what was flagged and what you did about it. Disagree with a
+finding? Say so and present both positions to the user rather than silently
+overruling the reviewer or silently complying.
 
-### B4. Commit on pass
+## 6. Local verification, then close
 
-**Read the file list before staging.** `git add` on a package's `owns` globs stages
-whatever is there, including anything the worker left behind. If files appear that
-the shard's Steps and Tests never mention — `inspect_*`, `test_*`, `tmp_*`, numbered
-variants of one another — they are debugging litter that belonged in
-`.pi-workflow/scratch/<id>/`. Delete them and say so. Never commit them, and never
-silently keep them because they matched a glob.
-
-`git add` **only** the package's files, then:
-
-```
-feat(auth): session cookie endpoints [03-auth-endpoints]
-```
-
-Record the SHA in `state.json`. **Never `git push`** — that is yeet's job, and the
-user's decision.
-
-### B5. Manual packages
-
-For `manual: true`: stop, print exactly what the user must do and how you will
-verify it, and wait. Re-verify before continuing.
-
-### B6. Wave summary
-
-To stdout and `.pi-workflow/log/build-<iso8601>.md`: packages, files changed, test
-counts, reviewer verdicts, elapsed, reported cost, and every timeout.
-
-Then **continue to the next wave**. There is no approval gate between waves.
-
----
-
-## Phase C — runaway detection
-
-Per `config/limits.json`. These catch stuck agents; they do not ration work.
-
-### C0. A timeout is not a test failure
-
-The two need different handling and historically got the same. A failing test tells
-you *what* is wrong, so a retry with those findings can succeed. A timeout tells you
-only that the clock ran out — and because retries launch with `context: "fresh"`,
-an identical retry re-does everything the killed agent already did before it can
-get any further. Two retries of a package that needs 40 minutes is 75 minutes spent
-arriving at the same wall.
-
-**On timeout, do not retry blind.** In order:
-
-1. **Establish what survived.** The killed agent's edits were never committed
-   (B4 commits only on pass) and were never reverted, so they are sitting in the
-   working tree. Run `git status --short` and diff the package's `owns` globs.
-2. **Say what it got done**, concretely: which files exist, whether tests were
-   written, whether anything ran. "Timed out" alone is not a report.
-3. **Judge which kind of timeout this was:**
-   - **Stuck** — no meaningful progress, repeated identical tool calls, empty or
-     churning diff. This is what the guard is for. Retry once with the findings,
-     exactly like a test failure.
-   - **Undersized** — real progress, killed mid-work. The budget was wrong, not the
-     agent. **Do not retry unchanged**; it will be killed at the same point.
-4. **For an undersized package, ask** — never decide alone, and never silently
-   raise a global limit:
-   - **split** the package (usual answer for write-then-run work: the code and its
-     fixture tests in one, the live run in another with `network: true`)
-   - **raise `timeout_min` for this package only**, and say what it becomes
-   - **take it manual** — hand over the command and verify after
-   - **skip** it, marking `blocked`, and continue with independent packages
-5. **Never raise `limits.packageTimeoutMin` to fit one slow package.** That removes
-   the runaway guard from every other package in the plan. `timeout_min` in the
-   shard exists for exactly this.
-
-A package that times out twice for the same reason is `blocked`. Escalating a clock
-to `oracle` produces a diagnosis of a stopwatch.
-
-- A subagent exceeding `timeoutMs` is killed and logged. **Always report timeouts**
-  in the wave summary. A timeout is **not** a failure — see below.
-- `turnBudget`, `toolBudget` and `control.*` are pi-subagents' native loop guards.
-  Pass them on every launch.
-- When cumulative reported cost crosses `softBudgetUsd`, finish the in-flight wave,
-  then ask: continue / raise the budget / stop. **Never abort mid-package.**
-- If pi-subagents reports no usage data, say so once and treat the soft budget as
-  disabled. Never estimate cost.
-
----
-
-## Phase D — local verification
-
-The point of this stage: the user can inspect and validate without deploying.
-
-1. Start the app with the local-dev command from the overview. Seed data.
-2. **Smoke test for real:**
-   - APIs — `curl` the health endpoint and the primary endpoints; assert status and
-     shape
-   - UI — drive the primary flow named in the plan with headless Playwright or
-     chrome-devtools
-   Capture results and screenshots to `.pi-workflow/log/`.
-3. **Validate the production path statically** — Dockerfile builds, `render.yaml` /
-   Bicep / CDK / Terraform passes its own validate or plan command, CI workflow
-   lints.
-4. **Never run a deploy.** Print the exact command and mark it a manual step:
-
-   ```
-   MANUAL: deploy when you are ready
-     render deploys create srv-xxxx --wait
-   ```
-
-5. Tear down everything you started — containers, dev servers, browsers. Leave no
-   orphans.
-
----
-
-## Phase E — close
-
-Final report: packages complete / blocked / skipped, commits made, tests passing,
-smoke results, outstanding manual steps, total cost. Update `state.json`.
+1. Start the app with the local-dev command. Seed data. **Smoke test for real**
+   — `curl` primary endpoints, or drive the primary flow with headless
+   Playwright/chrome-devtools. Capture results to `.pi-workflow/log/`.
+2. Validate the production path statically (Dockerfile builds, IaC validate/plan
+   passes, CI lints). **Never run a deploy** — print the exact command as a
+   manual step. Tear down everything you started.
+3. Report: packages complete / blocked / skipped, commits made, tests passing,
+   smoke results, outstanding manual steps, total cost. Update `state.json`.
 
 ```
 Next: /skill:yeet
@@ -236,31 +155,25 @@ Next: /skill:yeet
 
 ## Stop conditions
 
-Stop and ask **only** when:
-
-- a decision was left open, or reality contradicts a decision in the plan
-- a `manual: true` package is reached
-- a package is blocked after retries and oracle
-- the working tree is unexpectedly dirty
-- the soft budget is crossed
-- a deploy, or any irreversible or outward-facing action, would be required
-
-Otherwise keep going.
+Stop and ask **only** when: a decision was left open or reality contradicts the
+plan; a `manual: true` package is reached; a package is blocked after one
+retry; the working tree is unexpectedly dirty; the soft budget is crossed; a
+deploy or any irreversible/outward-facing action would be required. Otherwise
+keep going.
 
 ## Hard rules
 
 - Never `git push`. Never deploy. Never create cloud resources.
-- Never let a worker edit outside its package's `owns` globs.
-- Never mark a package complete on a subagent's say-so — verify it yourself.
-- Never let reviewer and worker share a *resolved* model. A config that passes
-  `validate.mjs` still collapses onto one model when neither is in this machine's
-  catalog and both fall back to the session model. Stop; do not review anyway.
+- Never let work land outside a package's `owns` globs.
+- Never mark a package complete on a subagent's say-so, or your own unverified
+  claim — run the acceptance commands yourself.
+- Never let reviewer and worker share a *resolved* model. Stop instead of
+  reviewing anyway.
 - Never modify the plan to match the code. If the plan is wrong, stop and say so.
-- Never stage a path under `.pi-workflow/` or `.pi-subagents/`. If `git status`
-  shows them, they were tracked before the ignore existed — `git rm -r --cached`
-  them and say so. A `.gitignore` entry does not untrack a staged file.
-- Never retry a timed-out package unchanged when it made real progress. Same
-  budget, same context reset, same wall — it only costs the user the time twice.
-- Never raise `limits.packageTimeoutMin` to accommodate one package. Use that
+- Never stage a path under `.pi-workflow/` or `.pi-subagents/`. Tracked already?
+  `git rm -r --cached` and say so — a `.gitignore` entry does not untrack a
+  staged file.
+- Never retry a timed-out package unchanged when it made real progress.
+- Never raise `limits.packageTimeoutMin` to accommodate one package — use that
   shard's `timeout_min`.
 - Never weaken or skip a test to make a package pass.

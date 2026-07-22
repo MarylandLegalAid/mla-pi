@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Structural validation for the pi-workflow package. Zero dependencies.
+// Structural validation for the mla-pi package. Zero dependencies.
 //
 //   node scripts/validate.mjs [--verbose]
 //
@@ -84,18 +84,21 @@ if (!(pkg.keywords ?? []).includes("pi-package")) {
 if (JSON.stringify(pkg.pi?.skills) !== JSON.stringify(["./skills"])) {
   err(pkgPath, 'pi.skills must be ["./skills"]');
 }
+if (JSON.stringify(pkg.pi?.extensions) !== JSON.stringify(["./extensions"])) {
+  err(pkgPath, 'pi.extensions must be ["./extensions"] for the startup splash to load');
+}
 if (JSON.stringify(pkg["pi-subagents"]?.agents) !== JSON.stringify(["./agents"])) {
-  err(pkgPath, '"pi-subagents".agents must be ["./agents"] for the pw- agents to load');
+  err(pkgPath, '"pi-subagents".agents must be ["./agents"] for the mla- agents to load');
 }
 if (pkg.dependencies && Object.keys(pkg.dependencies).length) {
   err(pkgPath, "no npm dependencies allowed: scripts must run on stock Node");
 }
-for (const p of [...(pkg.pi?.skills ?? []), ...(pkg["pi-subagents"]?.agents ?? [])]) {
+for (const p of [...(pkg.pi?.skills ?? []), ...(pkg.pi?.extensions ?? []), ...(pkg["pi-subagents"]?.agents ?? [])]) {
   if (!existsSync(join(ROOT, p))) err(pkgPath, `declared path does not exist: ${p}`);
 }
 
 // ------------------------------------------------------------------ 2. skills
-const SKILLS = ["setup", "groundwork", "blueprint", "build", "yeet"];
+const SKILLS = ["setup", "plan", "build", "yeet"];
 const skillsDir = join(ROOT, "skills");
 
 for (const name of SKILLS) {
@@ -138,14 +141,14 @@ for (const file of agentFiles) {
     continue;
   }
   if (!fm.name) err(file, "name is required");
-  if (fm.package !== "pi-workflow") err(file, 'package must be "pi-workflow" to namespace the agent');
+  if (fm.package !== "mla-pi") err(file, 'package must be "mla-pi" to namespace the agent');
   if (!fm.description) err(file, "description is required");
   if (!fm.tools) err(file, "tools is required: agents must declare an explicit tool set");
   if (agentNames.has(fm.name)) err(file, `duplicate agent name: ${fm.name}`);
   agentNames.add(fm.name);
 
   // Read-only agents must not carry write tools.
-  const READ_ONLY = ["pw-scout", "pw-reviewer", "pw-researcher"];
+  const READ_ONLY = ["mla-scout", "mla-reviewer", "mla-researcher"];
   if (READ_ONLY.includes(fm.name) && /\b(edit|write)\b/.test(fm.tools)) {
     err(file, `${fm.name} is a read-only agent but declares edit/write in tools`);
   }
@@ -163,7 +166,9 @@ try {
 }
 
 const roles = models.roles ?? {};
-const REQUIRED_ROLES = ["scout", "researcher", "planner", "worker", "reviewer", "scribe", "oracle"];
+// "session" sets pi's own default model rather than an agent override - see
+// scripts/apply-models.mjs - so it has no matching agent file, unlike the rest.
+const REQUIRED_ROLES = ["session", "scout", "researcher", "worker", "reviewer"];
 for (const role of REQUIRED_ROLES) {
   if (!roles[role]) err(modelsPath, `missing role: ${role}`);
 }
@@ -174,7 +179,8 @@ for (const [role, spec] of Object.entries(roles)) {
     err(modelsPath, `role ${role} has no model`);
     continue;
   }
-  if (!/^[a-z0-9-]+\/[a-zA-Z0-9._-]+$/.test(model)) {
+  // provider/id, where id may itself contain slashes (OpenRouter: provider/org/model).
+  if (!/^[a-z0-9-]+(?:\/[a-zA-Z0-9._-]+){1,}$/.test(model)) {
     err(modelsPath, `role ${role}: "${model}" is not a provider/model id`);
   }
 }
@@ -187,10 +193,33 @@ if (roles.reviewer && roles.worker) {
   }
 }
 
-// Every pw- agent needs a matching role, and vice versa.
+// Open-weight default (AGENTS.md): a warning, not a hard failure, since a
+// closed model is allowed when it earns its premium, and new open-weight labs
+// appear over time so this list cannot be exhaustive - but an *unnoticed*
+// closed-model provider slipping in here is exactly what this catches.
+const OPEN_WEIGHT_PREFIXES = [
+  "deepseek", "qwen", "moonshotai", "z-ai", "meta-llama", "minimax", "nvidia",
+  "microsoft", "allenai", "xiaomi", "tencent", "ibm-granite", "inclusionai",
+];
+for (const [role, spec] of Object.entries(roles)) {
+  const model = typeof spec === "string" ? spec : spec?.model;
+  if (!model) continue;
+  const org = model.split("/")[1]; // model is "provider/org/name" for OpenRouter
+  if (org && !OPEN_WEIGHT_PREFIXES.includes(org)) {
+    warn(modelsPath, `role ${role}: "${model}" is not on the known open-weight org list - confirm its license before keeping it (see docs/admin.md)`);
+  }
+}
+
+// Every mla- agent needs a matching role, and vice versa. "session" is the one
+// role with no agent - it sets pi's own default model, not an agent override.
 for (const name of agentNames) {
-  const role = name.replace(/^pw-/, "");
+  const role = name.replace(/^mla-/, "");
   if (!roles[role]) err(modelsPath, `agent ${name} has no matching role in config/models.json`);
+}
+for (const role of Object.keys(roles)) {
+  if (role !== "session" && !agentNames.has(`mla-${role}`)) {
+    err(modelsPath, `role ${role} has no matching agent (expected agents/mla-${role}.md)`);
+  }
 }
 
 // Optional: check against the live catalog when pi is available.
@@ -235,7 +264,7 @@ try {
 }
 
 // ----------------------------------------------------------------- 6. catalog
-// Distro families groundwork can resolve an install command for. Adding one here
+// Distro families /skill:plan can resolve an install command for. Adding one here
 // makes every family-bound catalog entry fail until it carries a command for it -
 // which is the point: the failure is the reminder.
 const FAMILIES = ["debian", "fedora", "arch"];
@@ -284,17 +313,17 @@ if (!existsSync(catalogPath)) {
             ` - supported families are ${FAMILIES.join(", ")}`,
         );
       }
-      // The rule that matters: groundwork runs non-sudo installs directly.
+      // The rule that matters: plan runs non-sudo installs directly.
       if (fields.sudo === "false" && /\bsudo\b/.test(cmd ?? "")) {
         errors.push(
           `${relative(ROOT, catalogPath)}:${line}: "${id}" declares sudo: false but ${key} uses sudo` +
-            " - groundwork would run it directly",
+            " - plan would run it directly",
         );
       }
     }
 
     // A base install bound to one distro family needs a command for the others,
-    // or groundwork has nothing correct to offer there. Declared via
+    // or plan has nothing correct to offer there. Declared via
     // install_family, otherwise inferred from the package manager it invokes.
     const declaredFamily = fields.install_family;
     if (declaredFamily && !FAMILIES.includes(declaredFamily)) {
@@ -364,9 +393,21 @@ for (const file of mdFiles) {
 ok(`${referenced.size} cross-references resolved`);
 
 // ------------------------------------------------- 8. no hardcoded model ids
+// Derived from config/models.json itself (provider, plus every org segment any
+// role actually uses) so this keeps working as routing changes, with a small
+// defensive list of other providers a skill/agent must never name directly.
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const knownPrefixes = new Set(["opencode-go", "anthropic", "openai", "google"]);
+if (models.provider) knownPrefixes.add(models.provider);
+for (const spec of Object.values(roles)) {
+  const model = typeof spec === "string" ? spec : spec?.model;
+  if (!model) continue;
+  for (const seg of model.split("/").slice(0, -1)) knownPrefixes.add(seg);
+}
+const modelIdRe = new RegExp(`\\b(${[...knownPrefixes].map(escapeRegex).join("|")})\\/[a-zA-Z0-9._-]+`);
 for (const file of mdFiles) {
   const text = read(file);
-  const hit = text.match(/\b(opencode-go|anthropic|openai|google)\/[a-zA-Z0-9._-]+/);
+  const hit = text.match(modelIdRe);
   if (hit) {
     err(file, `hardcoded model id "${hit[0]}": skills and agents must read config/models.json`);
   }
@@ -375,15 +416,16 @@ ok("no hardcoded model ids in skills or agents");
 
 // ------------------------------------------ 8b. agents referenced by full name
 // pi-subagents registers package agents ONLY as `<package>.<name>`. A bare
-// `pw-worker` fails at runtime with "Unknown agent" - verified against
-// pi-subagents 0.35.1.
+// `mla-worker` fails at runtime with "Unknown agent" - verified against
+// pi-subagents 0.35.1 under the prior pi-workflow/pw- naming; the same
+// namespacing rule applies unchanged under mla-pi/mla-.
 for (const file of walk(skillsDir).filter((f) => f.endsWith(".md"))) {
   const text = read(file);
-  for (const m of text.matchAll(/agent:\s*"(pw-[a-z-]+)"/g)) {
-    err(file, `agent "${m[1]}" must be namespaced as "pi-workflow.${m[1]}" or it will not resolve`);
+  for (const m of text.matchAll(/agent:\s*"(mla-[a-z-]+)"/g)) {
+    err(file, `agent "${m[1]}" must be namespaced as "mla-pi.${m[1]}" or it will not resolve`);
   }
-  for (const m of text.matchAll(/(?<!pi-workflow\.)`(pw-[a-z-]+)`/g)) {
-    err(file, `prose references bare agent "${m[1]}"; use pi-workflow.${m[1]}`);
+  for (const m of text.matchAll(/(?<!mla-pi\.)`(mla-[a-z-]+)`/g)) {
+    err(file, `prose references bare agent "${m[1]}"; use mla-pi.${m[1]}`);
   }
 }
 ok("agent references are namespaced");
@@ -461,7 +503,7 @@ if (shardsIdx !== -1) {
       }
       shards.set(fm.id, { fm, path, file });
 
-      // `<id>.md`, or `<NN>-<id>.md` - blueprint writes the ordering prefix into
+      // `<id>.md`, or `<NN>-<id>.md` - plan writes the ordering prefix into
       // the filename while the id carries its own, so both spellings are real.
       if (!fm.id) err(path, "id is required");
       else if (file !== `${fm.id}.md` && !new RegExp(`^\\d+-${fm.id}\\.md$`).test(file)) {
@@ -578,4 +620,4 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log(`\npi-workflow: valid (${SKILLS.length} skills, ${agentNames.size} agents)`);
+console.log(`\nmla-pi: valid (${SKILLS.length} skills, ${agentNames.size} agents)`);

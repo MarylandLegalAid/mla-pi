@@ -3,12 +3,13 @@
 //
 //   node scripts/suggest-models.mjs            # print a proposal, write nothing
 //   node scripts/suggest-models.mjs --write    # apply it to config/models.json
-//   node scripts/suggest-models.mjs --provider anthropic
+//   node scripts/suggest-models.mjs --provider openrouter
 //
-// config/models.json ships pinned to one provider. On any other provider every
-// role falls back to the session model, which collapses worker and reviewer onto
-// the same model and quietly turns review into self-review. This exists to make
-// that a two-second fix rather than a hand-edit of seven ids.
+// config/models.json ships pinned to OpenRouter, open-weight models only. On any
+// other provider every role falls back to the session model, which collapses
+// worker and reviewer onto the same model and quietly turns review into
+// self-review. This exists to make that a two-second fix rather than a
+// hand-edit of five ids.
 //
 // Zero dependencies, same as the other scripts here.
 
@@ -29,6 +30,15 @@ const fail = (m) => {
   process.exit(1);
 };
 
+// Org prefixes with genuinely open-licensed weights, as seen on OpenRouter.
+// Deliberately excludes gray areas (mistralai mixes open small models with
+// closed Large/Medium tiers; baidu and ai21 are mostly closed or restrictively
+// licensed) - see docs/admin.md to change this list.
+const OPEN_WEIGHT_PREFIXES = [
+  "deepseek", "qwen", "moonshotai", "z-ai", "meta-llama", "minimax", "nvidia",
+  "microsoft", "allenai", "xiaomi", "tencent", "ibm-granite", "inclusionai",
+];
+
 // ---------------------------------------------------------------- the catalog
 let catalog;
 try {
@@ -44,15 +54,36 @@ try {
 if (!catalog.length) fail("`pi --list-models` returned nothing. Authenticate a provider first.");
 
 const providers = [...new Set(catalog.map((m) => m.provider))];
-const provider = WANT_PROVIDER ?? providers[0];
+const provider = WANT_PROVIDER ?? (providers.includes("openrouter") ? "openrouter" : providers[0]);
 if (!providers.includes(provider)) {
   fail(`no models for provider "${provider}". Available: ${providers.join(", ")}`);
 }
-const available = catalog.filter((m) => m.provider === provider);
 
-// A model's "family" is the first word of its id: claude, deepseek, kimi, glm,
-// gpt. Crude, but it is the difference between a second opinion and an echo, and
-// it costs nothing to prefer.
+let available = catalog.filter((m) => m.provider === provider);
+if (provider === "openrouter") {
+  const openWeight = available.filter((m) => OPEN_WEIGHT_PREFIXES.some((p) => m.model.startsWith(`${p}/`)));
+  if (openWeight.length >= 2) {
+    available = openWeight;
+  } else {
+    log(
+      "warning: fewer than 2 open-weight models found on openrouter; falling back to the\n" +
+        "  full openrouter catalog for this proposal. Review it against the open-weight\n" +
+        "  policy in docs/admin.md before applying.",
+    );
+  }
+} else {
+  log(
+    `warning: provider "${provider}" is not openrouter. mla-pi's policy is open-weight\n` +
+      "  models via OpenRouter only - this proposal is a recovery step for a broken\n" +
+      "  machine, not a policy-compliant routing. Authenticate OpenRouter and re-run\n" +
+      "  without --provider once you can.",
+  );
+}
+
+// A model's "family" is its first token, splitting on any of - _ . /. For
+// OpenRouter ids (after stripping the leading provider segment) that is the
+// lab/org - deepseek, qwen, z-ai - which is exactly the signal that matters for
+// "is this reviewer a genuine second opinion".
 const family = (model) => model.split(/[-_.\/]/)[0].toLowerCase();
 
 // ------------------------------------------------------------- current config
@@ -96,7 +127,7 @@ for (const role of roles) {
 
 // Enforce the one rule that matters, after everything else is assigned.
 if (proposal.worker && proposal.reviewer && proposal.worker === proposal.reviewer) {
-  const workerFamily = family(proposal.worker.split("/")[1] ?? "");
+  const workerFamily = family(proposal.worker.split("/").slice(1).join("/"));
   const differentFamily = ordered.find(
     (m) => m.id !== proposal.worker && family(m.model) !== workerFamily,
   );
@@ -107,7 +138,7 @@ if (proposal.worker && proposal.reviewer && proposal.worker === proposal.reviewe
 const collapsed = proposal.worker && proposal.worker === proposal.reviewer;
 
 // ------------------------------------------------------------------- report
-log(`provider:  ${provider}${WANT_PROVIDER ? "" : `  (first of: ${providers.join(", ")})`}`);
+log(`provider:  ${provider}${WANT_PROVIDER ? "" : `  (${providers.includes("openrouter") ? "openrouter preferred" : `first of: ${providers.join(", ")}`})`}`);
 log(`catalog:   ${available.length} model(s)\n`);
 
 for (const role of roles) {
@@ -126,7 +157,7 @@ if (collapsed) {
   process.exit(1);
 }
 
-if (family(proposal.worker.split("/")[1] ?? "") === family(proposal.reviewer.split("/")[1] ?? "")) {
+if (family(proposal.worker.split("/").slice(1).join("/")) === family(proposal.reviewer.split("/").slice(1).join("/"))) {
   log(
     `\nnote: worker and reviewer are different models but the same family.\n` +
       `      Better than nothing; a different family is a better second opinion.`,

@@ -1,15 +1,14 @@
 # Artifacts
 
-Everything pi-workflow produces for a project lives in one gitignored directory at
+Everything mla-pi produces for a project lives in one gitignored directory at
 the project root. It is deliberately visible next to the code, trivially copied to
 another device, and covered by a single `.gitignore` line.
 
 ```
 <project-root>/.pi-workflow/
 ├── state.json                  # the source of truth for stage and package status
-├── tools.md                    # groundwork output
 ├── plan/
-│   ├── 00-overview.md          # goal, decisions ledger, conventions, wave plan
+│   ├── 00-overview.md          # goal, decisions ledger, tooling, conventions, wave plan
 │   └── NN-<slug>.md            # work packages
 ├── research/
 │   ├── codebase.md             # scout recon (brownfield)
@@ -17,7 +16,7 @@ another device, and covered by a single `.gitignore` line.
 ├── scratch/
 │   └── <pkg-id>/               # throwaway probes. Gitignored, never committed.
 └── log/
-    ├── build-<iso8601>.md      # wave summaries, costs, decisions
+    ├── build-<iso8601>.md      # run summaries, costs, decisions
     └── subagent/<pkg-id>-<n>.md
 ```
 
@@ -29,10 +28,10 @@ inside the package's `owns` globs**.
 
 `owns` defines what build commits. A worker debugging a scraper by writing
 `inspect_dining_vm.mjs` through `inspect_dining_vm5.mjs` into an owned directory
-does not just make a mess; it makes a mess that `git add` picks up, because B4
-stages the package's files and those files match. Scratch under `.pi-workflow/` is
-covered by the same single `.gitignore` line as everything else here, so it cannot
-reach a commit no matter how the globs are written.
+does not just make a mess; it makes a mess that `git add` picks up, because the
+commit step stages the package's files and those files match. Scratch under
+`.pi-workflow/` is covered by the same single `.gitignore` line as everything
+else here, so it cannot reach a commit no matter how the globs are written.
 
 Delete a package's scratch directory when it completes. It is evidence while the
 package is in flight and litter afterwards.
@@ -46,10 +45,9 @@ package is in flight and litter afterwards.
   "updatedAt": "2026-07-21T20:00:00Z",
   "goal": "one-paragraph restatement of what the user asked for",
   "stages": {
-    "groundwork": { "status": "complete", "completedAt": "...", "toolsDoc": ".pi-workflow/tools.md" },
-    "blueprint":  { "status": "complete", "completedAt": "...", "planDir": ".pi-workflow/plan", "packages": 12 },
-    "build":      { "status": "in_progress", "startedAt": "..." },
-    "yeet":       { "status": "not_started" }
+    "plan":  { "status": "complete", "completedAt": "...", "planDir": ".pi-workflow/plan", "packages": 12 },
+    "build": { "status": "in_progress", "startedAt": "..." },
+    "yeet":  { "status": "not_started" }
   },
   "openDecisions": [
     {

@@ -1,6 +1,6 @@
 # Plan shard schema
 
-The contract between `blueprint` (writes) and `build` (executes). A shard is one
+The contract between `plan` (writes) and `build` (executes). A shard is one
 work package: a unit of work a single subagent can complete in one context window,
 starting from nothing but this file and `00-overview.md`.
 
@@ -77,12 +77,12 @@ every other package in the plan.
 the selectors, the endpoints, the pagination scheme, whether the content is
 server-rendered. A worker that has to reverse-engineer a page's DOM will do it by
 writing one probe script per hypothesis, and each probe costs a full page load. That
-is discovery work, and discovery belongs in blueprint's research — cited in the
+is discovery work, and discovery belongs in plan's research — cited in the
 shard's Context — not in a timeboxed implementation package.
 
 ## Invariants
 
-`blueprint` enforces these before writing; `build` re-checks before executing;
+`plan` enforces these before writing; `build` re-checks before executing;
 `node scripts/validate.mjs --shards <plan-dir>` checks a written plan.
 
 1. **`owns` globs are disjoint across packages in the same wave.** Two agents
@@ -90,7 +90,7 @@ shard's Context — not in a timeboxed implementation package.
    prevent. Overlap between different waves is fine — they are ordered.
 2. **`depends_on` is acyclic**, and every id it names exists.
 3. **No open questions.** No "decide whether", no "TBD", no "consider", no
-   either/or left to the implementer. If blueprint cannot resolve something, it is
+   either/or left to the implementer. If plan cannot resolve something, it is
    an open decision and the interview is not finished.
 4. **Every acceptance criterion is checkable** by running a command or observing a
    specific, named behaviour. "Code is clean" is not a criterion.

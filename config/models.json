@@ -1,41 +1,37 @@
 {
-  "$comment": "Model routing for pi-workflow subagents. Keys are roles; each role maps to the agent pi-workflow.pw-<role>. Applied to subagents.agentOverrides by scripts/apply-models.mjs. Every ID must exist in `pi --list-models`; skills fall back to the session model and warn if one is missing.",
-  "provider": "opencode-go",
+  "$comment": "Model routing for mla-pi subagents, all on OpenRouter. Keys are roles: `session` sets pi's own default model (defaultProvider/defaultModel in settings.json); the rest map to the agent mla-pi.mla-<role> via subagents.agentOverrides. Applied by scripts/apply-models.mjs. Every ID must exist in `pi --list-models`; skills fall back to the session model and warn if one is missing.",
+  "$policy": "Cost-effectiveness is the governing constraint, not open-weight status - a Maryland Legal Aid budget decision. Open-weight is preferred by default, but a closed/proprietary model is allowed where its capability clearly earns the premium (see roles.researcher). Every price below is the provider's full list price, not a promotional rate - re-check before assuming a role is still the cheapest option. See docs/admin.md to change routing org-wide.",
+  "provider": "openrouter",
   "roles": {
+    "session": {
+      "model": "openrouter/deepseek/deepseek-v4-pro",
+      "thinking": "high",
+      "pricePerMillion": { "input": 0.435, "output": 0.87 },
+      "why": "Strongest open-weight generalist available at this price. Drives the /skill:plan interview and interactive work, so reasoning quality and instruction-following matter most here; 1M context holds a full interview plus a large plan in one turn."
+    },
     "scout": {
-      "model": "opencode-go/deepseek-v4-flash",
+      "model": "openrouter/deepseek/deepseek-v4-flash",
       "thinking": "medium",
-      "why": "Cheapest fast model. Codebase mapping and tool probing are recall tasks, not reasoning tasks."
+      "pricePerMillion": { "input": 0.098, "output": 0.196 },
+      "why": "Cheapest capable model in the catalog. Codebase mapping and tool probing are recall tasks, not reasoning tasks, and its 1M context covers a whole-repo scan."
     },
     "researcher": {
-      "model": "opencode-go/deepseek-v4-pro",
+      "model": "openrouter/meta/muse-spark-1.1",
       "thinking": "high",
-      "why": "Strong synthesis across many fetched pages, a tier below the planner in cost."
-    },
-    "planner": {
-      "model": "opencode-go/kimi-k3",
-      "thinking": "high",
-      "why": "1M context holds the interview, the research and the whole plan at once."
+      "pricePerMillion": { "input": 1.25, "output": 4.25 },
+      "why": "Closed/proprietary - the one deliberate exception to the open-weight default. Built-in search with citations maps directly onto mla-researcher's one absolute constraint (never state anything you didn't fetch), and research calls are bounded per plan, so the per-token premium stays small in absolute dollars. Also handles PDF input directly, useful for source material MLA staff hand it."
     },
     "worker": {
-      "model": "opencode-go/kimi-k2.7-code",
+      "model": "openrouter/xiaomi/mimo-v2.5-pro",
       "thinking": "high",
-      "why": "Code-specialised with 262K max output, enough for large multi-file work packages."
+      "pricePerMillion": { "input": 0.435, "output": 0.87 },
+      "why": "Open-weight (MIT). Top rankings on SWE-bench Pro and long-horizon agentic benchmarks (ClawEval, GDPVal), built for exactly the multi-file, many-tool-call shards this role implements. Highest-volume role in the whole lineup, so re-check this price against the catalog before assuming it still pencils out."
     },
     "reviewer": {
-      "model": "opencode-go/glm-5.2",
+      "model": "openrouter/z-ai/glm-5.2",
       "thinking": "high",
-      "why": "Deliberately a different family from worker so review is a genuine second opinion. Never set this to the worker model."
-    },
-    "scribe": {
-      "model": "opencode-go/mimo-v2.5",
-      "thinking": "medium",
-      "why": "Tool docs and summaries do not need a frontier model."
-    },
-    "oracle": {
-      "model": "opencode-go/qwen3.7-max",
-      "thinking": "high",
-      "why": "Escalation path when a worker and reviewer disagree twice. Maps to the pi-subagents builtin `oracle`, not a pw- agent."
+      "pricePerMillion": { "input": 1.40, "output": 4.40 },
+      "why": "Zhipu/Z.ai - a different lab from worker's Xiaomi/MiMo family, so review is a genuine second opinion, not the same model checking its own work. Never set this to the worker model or its family. Generational upgrade from glm-4.7: benchmarks near frontier proprietary models on long-horizon coding review at a fraction of their cost."
     }
   }
 }

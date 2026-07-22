@@ -13,7 +13,7 @@ const validate = (dir) => run(join(dir, "scripts", "validate.mjs"), [], { cwd: d
 test("the repo as committed is valid", () => {
   const r = validate(REPO);
   assert.equal(r.code, 0, out(r));
-  assert.match(r.stdout, /pi-workflow: valid/);
+  assert.match(r.stdout, /mla-pi: valid/);
 });
 
 test("reviewer sharing the worker's model is rejected", () => {
@@ -24,6 +24,35 @@ test("reviewer sharing the worker's model is rejected", () => {
   const r = validate(dir);
   assert.equal(r.code, 1);
   assert.match(out(r), /roles\.reviewer must differ from roles\.worker/);
+});
+
+test("a missing required role is rejected", () => {
+  const dir = repoCopy();
+  const cfg = JSON.parse(readFileSync(join(dir, "config", "models.json"), "utf8"));
+  delete cfg.roles.session;
+  writeFileSync(join(dir, "config", "models.json"), JSON.stringify(cfg, null, 2));
+  const r = validate(dir);
+  assert.equal(r.code, 1);
+  assert.match(out(r), /missing role: session/);
+});
+
+test("a role model not on the open-weight org list is a warning, not a failure", () => {
+  const dir = repoCopy();
+  const cfg = JSON.parse(readFileSync(join(dir, "config", "models.json"), "utf8"));
+  cfg.roles.scout.model = "openrouter/openai/gpt-5-mini";
+  writeFileSync(join(dir, "config", "models.json"), JSON.stringify(cfg, null, 2));
+  const r = validate(dir);
+  assert.equal(r.code, 0, out(r));
+  assert.match(out(r), /not on the known open-weight org list/);
+});
+
+test("a three-segment OpenRouter model id is accepted", () => {
+  // provider/org/model - the shape every real role in config/models.json uses.
+  const dir = repoCopy();
+  const cfg = JSON.parse(readFileSync(join(dir, "config", "models.json"), "utf8"));
+  assert.match(cfg.roles.worker.model, /^openrouter\/[a-z0-9-]+\/[a-zA-Z0-9._-]+$/);
+  const r = validate(dir);
+  assert.equal(r.code, 0, out(r));
 });
 
 test("sudo in an install command with sudo: false is rejected", () => {
@@ -43,10 +72,19 @@ test("a hardcoded model id in a skill is rejected", () => {
   assert.match(out(r), /hardcoded model id/);
 });
 
-test("a bare pw- agent reference is rejected", () => {
+test("a hardcoded OpenRouter model id derived from config/models.json is rejected", () => {
   const dir = repoCopy();
   const f = join(dir, "skills", "build", "SKILL.md");
-  writeFileSync(f, `${readFileSync(f, "utf8")}\n\nagent: "pw-worker"\n`);
+  writeFileSync(f, `${readFileSync(f, "utf8")}\n\nUse openrouter/deepseek/deepseek-v4-pro here.\n`);
+  const r = validate(dir);
+  assert.equal(r.code, 1);
+  assert.match(out(r), /hardcoded model id/);
+});
+
+test("a bare mla- agent reference is rejected", () => {
+  const dir = repoCopy();
+  const f = join(dir, "skills", "build", "SKILL.md");
+  writeFileSync(f, `${readFileSync(f, "utf8")}\n\nagent: "mla-worker"\n`);
   const r = validate(dir);
   assert.equal(r.code, 1);
   assert.match(out(r), /must be namespaced/);
@@ -54,14 +92,28 @@ test("a bare pw- agent reference is rejected", () => {
 
 test("a write tool on a read-only agent is rejected", () => {
   const dir = repoCopy();
-  patch(
-    join(dir, "agents", "pw-reviewer.md"),
-    "tools: read",
-    "tools: read, write",
-  );
+  patch(join(dir, "agents", "mla-reviewer.md"), "tools: read", "tools: read, write");
   const r = validate(dir);
   assert.equal(r.code, 1);
   assert.match(out(r), /read-only agent but declares edit\/write/);
+});
+
+test("an agent whose package field is not mla-pi is rejected", () => {
+  const dir = repoCopy();
+  patch(join(dir, "agents", "mla-scout.md"), "package: mla-pi", "package: pi-workflow");
+  const r = validate(dir);
+  assert.equal(r.code, 1);
+  assert.match(out(r), /package must be "mla-pi"/);
+});
+
+test("a role with no matching agent is rejected", () => {
+  const dir = repoCopy();
+  const cfg = JSON.parse(readFileSync(join(dir, "config", "models.json"), "utf8"));
+  cfg.roles.editor = { model: "openrouter/deepseek/deepseek-v4-pro" };
+  writeFileSync(join(dir, "config", "models.json"), JSON.stringify(cfg, null, 2));
+  const r = validate(dir);
+  assert.equal(r.code, 1);
+  assert.match(out(r), /role editor has no matching agent/);
 });
 
 test("a reference to a nonexistent shared file is rejected", () => {
@@ -81,6 +133,16 @@ test("dropping pi-subagents.agents from the manifest is rejected", () => {
   const r = validate(dir);
   assert.equal(r.code, 1);
   assert.match(out(r), /must be \["\.\/agents"\]/);
+});
+
+test("dropping pi.extensions from the manifest is rejected", () => {
+  const dir = repoCopy();
+  const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+  delete pkg.pi.extensions;
+  writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2));
+  const r = validate(dir);
+  assert.equal(r.code, 1);
+  assert.match(out(r), /pi\.extensions must be \["\.\/extensions"\]/);
 });
 
 test("an npm dependency is rejected", () => {

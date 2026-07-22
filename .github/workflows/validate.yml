@@ -18,5 +18,14 @@ jobs:
       - name: Validate package structure
         run: node scripts/validate.mjs --verbose
 
-      - name: Check bootstrap script syntax
-        run: bash -n scripts/bootstrap.sh
+      - name: Run tests
+        run: npm test
+
+      # ubuntu-latest runners ship shellcheck already; no install step needed.
+      - name: Shellcheck the shell scripts
+        run: shellcheck install.sh scripts/bootstrap.sh
+
+      - name: Check shell script syntax
+        run: |
+          bash -n install.sh
+          bash -n scripts/bootstrap.sh

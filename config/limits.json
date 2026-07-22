@@ -5,7 +5,7 @@
   "$maxParallel": "0 means unlimited: launch every package whose dependencies are satisfied. pi-subagents defaults `concurrency` to 4, so skills MUST pass concurrency explicitly (= wave size) or this decision is silently overridden. Any positive integer here caps it.",
 
   "packageTimeoutMin": 25,
-  "$packageTimeoutMin": "Passed as timeoutMs. A subagent exceeding it is killed, logged as a timeout, and retried within maxRetriesPerPackage. Timeouts are always reported in the wave summary, never swallowed.",
+  "$packageTimeoutMin": "Passed as timeoutMs. A subagent exceeding it is killed, logged as a timeout, and retried within maxRetriesPerPackage. Timeouts are always reported, never swallowed.",
 
   "turnBudget": { "maxTurns": 80, "graceTurns": 5 },
   "$turnBudget": "Loop guard: an agent taking this many turns on one work package is stuck, not thorough.",
@@ -18,10 +18,10 @@
     "needsAttentionAfterMs": 300000,
     "failedToolAttemptsBeforeAttention": 3
   },
-  "$control": "pi-subagents native stuck detection: no observed activity for 5 minutes, or 3 consecutive failing mutating tool calls, raises the run to needs_attention so the orchestrator can surface it.",
+  "$control": "pi-subagents native stuck detection: no observed activity for 5 minutes, or 3 consecutive failing mutating tool calls, raises the run to needs_attention so build can act on it.",
 
-  "maxRetriesPerPackage": 2,
-  "$maxRetriesPerPackage": "After exhaustion, escalate once to oracle, then mark the package blocked, continue with independent packages, and stop to report.",
+  "maxRetriesPerPackage": 1,
+  "$maxRetriesPerPackage": "After one retry fails, build stops and reports to the human rather than escalating to another model. A human adjudicates a stuck package faster and cheaper than a third agent would.",
 
   "softBudgetUsd": 5,
   "softBudgetAction": "ask",

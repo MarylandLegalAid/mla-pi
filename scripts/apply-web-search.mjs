@@ -4,7 +4,7 @@
 //   node scripts/apply-web-search.mjs             # fill in workflow if absent
 //   node scripts/apply-web-search.mjs --dry-run
 //
-// The curator only ever affects top-level searches: pw-researcher subagents have
+// The curator only ever affects top-level searches: mla-researcher subagents have
 // no UI, so pi-web-access resolves them to "none" regardless. Leaving it on gives
 // interactive searches different handling from the research that actually feeds a
 // plan.

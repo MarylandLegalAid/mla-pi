@@ -1,237 +1,107 @@
-# pi-workflow
+# mla-pi
 
-A four-stage development workflow for the [pi coding agent](https://pi.dev),
-packaged so it can be recreated on any device with one command.
-
-| Stage | Skill | Produces |
-|---|---|---|
-| 0 | `/skill:setup` | a machine that passes `doctor.mjs` — run once, after install |
-| 1 | `/skill:groundwork` | `tools.md` — every CLI and MCP server the task needs, installed or consciously declined |
-| 2 | `/skill:blueprint` | `plan/` — a sharded, decision-free implementation plan |
-| 3 | `/skill:build` | working, tested, locally-verified code and local commits |
-| 4 | `/skill:yeet` | a safe commit pushed to `main` |
-
-The premise: an LLM will happily produce code that compiles and is nonetheless not
-what you wanted. The fix is to spend the decisions up front, with a human, and to
-hand the implementer a plan that leaves nothing open.
+An AI coding assistant for Maryland Legal Aid staff, built on the
+[pi coding agent](https://pi.dev). It plans a piece of work with you by asking
+questions, builds it, and helps you ship it — running on OpenRouter using your
+own personal API key, paid for by MLA.
 
 ## Install
 
-```sh
-pi install git:github.com/jeffcottj/pi-workflow
-```
-
-pi does not install pi packages transitively, so the skills' companion packages
-need one more step. Restart pi, then:
-
-```
-> /skill:setup
-```
-
-It finds the package root itself, runs the bootstrap, and reports what is still
-wrong. If you would rather run it directly:
+On a Linux machine, or Windows via WSL ("Ubuntu" from the Start menu — ask your
+admin if you don't have it yet), open a terminal and run:
 
 ```sh
-bash "$(pi list | grep -A1 pi-workflow | tail -1 | xargs)"/scripts/bootstrap.sh
+curl -fsSL https://raw.githubusercontent.com/<MLA-ORG>/mla-pi/main/install.sh | bash
 ```
 
-`pi list` prints each installed package's resolved path — use it if the one-liner
-does not match your layout. For a git install that is normally
-`~/.pi/agent/git/github.com/jeffcottj/pi-workflow`.
+It sets up everything: the pi agent itself, this package, and the tools it
+needs. Along the way it will ask you to:
 
-Restart pi. The four skills appear as `/skill:groundwork`, `/skill:blueprint`,
-`/skill:build`, `/skill:yeet`.
+- **paste your OpenRouter API key** — your admin gives you this; it's stored
+  only on this machine
+- **give your name and email**, if git has never asked before (used for commits)
+- **log into GitHub** in your browser, if you haven't already
 
-Bootstrap ends by running the doctor, which you can repeat at any time:
+It's safe to re-run if anything gets interrupted — it picks up where it left off.
 
-```sh
-node scripts/doctor.mjs
-```
+## Your first session
 
-It checks the companion packages, that the six `pw-*` agents are declared, that
-every role's model exists in *your* catalog, and — the one nothing else checks —
-that `worker` and `reviewer` resolve to different models. Each failure prints the
-command that fixes it.
-
-Private repo instead: `pi install git:git@github.com:jeffcottj/pi-workflow`.
-To update: `pi update git:github.com/jeffcottj/pi-workflow`.
-
-### Requirements
-
-- pi ≥ 0.81, Node ≥ 20
-- an authenticated provider (`pi --list-models` shows something)
-- companions, installed by bootstrap: `pi-subagents`,
-  `@juicesharp/rpiv-ask-user-question`, `pi-web-access`
-
-## Usage
+Open a terminal in the folder you want to work in (or an empty one, for
+something new) and run:
 
 ```sh
 pi
-> /skill:groundwork add SSO to the admin portal using Entra ID
 ```
 
-groundwork works out what tooling the job needs, probes the machine, installs what
-it safely can, and hands you anything requiring `sudo` or an interactive login. It
-keeps looping until nothing is in an unknown state, then writes
-`.pi-workflow/tools.md`.
+You'll see a startup header with your model, current folder, a quick health
+check (OpenRouter key, companion packages), and the commands below — it's
+there every time as a reminder, not just the first run.
 
-Clear context, then:
+**`/skill:plan <describe what you want>`** — tell it what you're trying to
+build, in as much or as little detail as you have. It'll figure out what tools
+the job needs, then ask you questions one at a time — multiple choice, with an
+explanation for each option — until it has a complete, unambiguous plan. Answer
+honestly; the plan is only as good as the decisions in it. When it's done,
+clear the conversation (start a fresh one) and run:
+
+**`/skill:build`** — it works through the plan, writing and testing code as it
+goes. For most tasks it does this directly in front of you; for larger
+independent pieces of work it may hand parts off to run in parallel, and it'll
+tell you when it does. It stops to ask if it hits a real decision point, gets
+stuck, or needs something only you can do (like an account or a password).
+When it's done, it will have run the thing locally so you can see it work.
+
+**`/skill:yeet`** — commits and ships what was built. The first time you run it
+in a given project, it'll ask whether to push straight to `main` or open a
+branch for review — answer once, and it remembers your answer for that project
+from then on. It always checks for anything that looks like a secret before
+committing, and refuses if it finds one.
+
+## Keeping it up to date
 
 ```sh
-> /skill:blueprint add SSO to the admin portal using Entra ID
+pi update git:github.com/<MLA-ORG>/mla-pi
 ```
 
-blueprint maps your codebase, researches the domain on the web, and interviews you
-**one question at a time** with selectable options, explanations, and a
-recommendation. Every answer re-derives the open-decisions ledger, so answering one
-question can raise two more — the interview ends when a full pass adds nothing new,
-not at a fixed question count. Then it writes a sharded plan.
+Occasionally the model routing changes (a price change, a better model becomes
+available) — you'll see a one-line note about it when a skill starts, with the
+exact command to run.
 
-Clear context, then:
+## Something's not working
+
+Run `/skill:setup` inside pi. It re-checks everything the installer set up and
+fixes what it safely can. If it says something needs your attention, follow
+what it prints — it always tells you the exact command. Or from a terminal:
 
 ```sh
-> /skill:build
+node "$(pi list | grep -A1 mla-pi | tail -1 | xargs)"/scripts/doctor.mjs
 ```
 
-build runs each dependency wave as parallel subagents, gates every package on
-tests, typecheck, lint and a reviewer running on a **different model**, and commits
-each package locally. It brings the app up and smoke-tests it. It never deploys —
-it hands you the command.
+## Why these particular models?
+
+Every task in `/skill:plan` and `/skill:build` runs on an open-weight model —
+chosen by MLA to keep costs predictable for a non-profit budget, not because
+they're the only option. `/model` inside pi lets you switch models for your
+own session if you want; ask your admin if you have questions about the
+defaults, or see `docs/admin.md` if you administer this yourself.
+
+---
+
+## For anyone changing this repo
+
+Conventions for editing skills, agents, and scripts live in `AGENTS.md`.
+Running the org (keys, model routing, Intune deployment) is `docs/admin.md`.
+What's guarded and why is `docs/verification.md`.
 
 ```sh
-> /skill:yeet
+npm test                    # scripts/ test suite, no dependencies
+node scripts/validate.mjs   # frontmatter, routing, catalog, references, secrets
+node scripts/doctor.mjs     # is *this* machine actually set up?
 ```
 
-## Configuration
-
-### `config/models.json`
-
-Roles map to the `pw-*` agents. `scripts/apply-models.mjs` writes these into
-`subagents.agentOverrides` in `~/.pi/agent/settings.json`.
-
-| Role | Default | Why |
-|---|---|---|
-| `scout` | `deepseek-v4-flash` | Codebase mapping and tool probing are recall tasks |
-| `researcher` | `deepseek-v4-pro` | Synthesis across many fetched pages |
-| `planner` | `kimi-k3` | 1M context holds interview, research and plan at once |
-| `worker` | `kimi-k2.7-code` | Code-specialised, 262K max output |
-| `reviewer` | `glm-5.2` | A different family from `worker`, so review is a real second opinion |
-| `scribe` | `mimo-v2.5` | Docs do not need a frontier model |
-| `oracle` | `qwen3.7-max` | Escalation when worker and reviewer disagree twice |
-
-Defaults target the `opencode-go` catalog. **On any other provider none of these
-ids resolve**, every role falls back to the session model, and `worker` and
-`reviewer` land on the same one — which makes build's review gate self-review. So
-that is a hard failure now, not a warning:
-
-```sh
-node scripts/suggest-models.mjs           # propose a mapping from your catalog
-node scripts/suggest-models.mjs --write   # apply it (backs up first)
-node scripts/apply-models.mjs             # route the agents
-```
-
-`suggest-models` makes no claim about which model suits which role — that needs
-someone who knows what they cost and how they behave. It guarantees the one
-mechanical property nothing else enforces: worker and reviewer differ, by family
-where your catalog allows it. Edit the result.
-
-`reviewer` sharing a model with `worker` is a validation error in config and a
-**STOP** in build when it happens at resolution time.
-
-### `~/.pi/web-search.json`
-
-Not part of this repo — it belongs to `pi-web-access` — but bootstrap sets
-`workflow: "none"` there on a fresh machine, so `web_search` returns raw results
-instead of opening the browser curator.
-
-The reasoning: research that feeds a plan runs in `pw-researcher` subagents, and
-those resolve to `none` regardless of this setting because they have no UI. Curating
-only top-level searches would give your interactive searches different treatment
-from the ones actually shaping plans. `auto-summary` is worse for this workflow
-still — it puts a second model between the search and a researcher whose whole
-contract is to cite only what it fetched.
-
-Bootstrap only fills the key in when it is absent, so a later `/curator on` sticks.
-
-### `config/limits.json`
-
-Runaway detection only — **no parallelism cap and no hard budget kill.** Every
-package whose dependencies are satisfied launches immediately. What is enforced:
-
-- `packageTimeoutMin` — the default per-package ceiling. A **timeout is not a test
-  failure**: build establishes what survived in the working tree, judges whether the
-  agent was stuck or the budget was simply too small, and for the latter asks
-  rather than retrying into the same wall. A shard can override it with
-  `timeout_min`; never raise this global to fit one slow package.
-- `turnBudget` / `toolBudget` / `control` — pi-subagents' native loop guards.
-- `softBudgetUsd` — on crossing, build finishes the in-flight wave and **asks**:
-  continue, raise, or stop. It never aborts mid-package.
-
-### `catalog/tools.yaml`
-
-The curated inventory groundwork probes, so it does not re-research `az` and
-`docker` on every project. Adding a tool: see `catalog/README.md`. Anything not in
-the catalog still gets handled — groundwork researches it on the web.
-
-Entries carry per-distro install commands (`install_debian`, `install_fedora`,
-`install_arch`). groundwork detects the machine's family first and resolves
-against it, and **never offers a command for a package manager the machine does
-not have** — it researches the right one instead. `validate.mjs` fails any entry
-whose install is bound to one family without commands for the others.
-
-## Artifacts
-
-Everything lands in one gitignored directory at the project root:
-
-```
-.pi-workflow/
-├── state.json      # stage and package status; makes every skill resumable
-├── tools.md
-├── plan/           # 00-overview.md + one shard per work package
-├── research/       # codebase map, cited web findings
-└── log/            # wave summaries, subagent transcripts
-```
-
-This is deliberate: plans are visible next to the code, easy to copy to another
-machine, and covered by one `.gitignore` line. **They are never committed** —
-`yeet` enforces it. Move them between devices yourself.
-
-## Design notes
-
-**Skills, not TypeScript.** The repo ships markdown. Delegation, structured
-questions and web access come from published packages that already do those jobs
-well. Nothing here breaks when pi's extension API changes.
-
-**pi-only, on purpose.** The skills call `ask_user_question` and `subagent`
-directly. A harness-neutral version would degrade to printing questions as text,
-which is the experience this exists to replace. The artifacts are plain markdown,
-so a plan written here is readable anywhere.
-
-**Purpose-built agents.** `agents/pw-*.md` are real agent definitions with their
-own tool sets and system prompts, not prose instructions to a generic worker.
-`pw-scout`, `pw-researcher` and `pw-reviewer` have **no write tools at all** — a
-reviewer that cannot edit cannot quietly fix what it was supposed to report.
-
-**Nothing reaches infrastructure by accident.** `build` never deploys and never
-creates cloud resources. `pw-worker` cannot push. `yeet` is the only thing that
-talks to a remote, and it refuses on any secret-scan hit with no override.
-
-## Development
-
-```sh
-npm test                         # 45 tests over scripts/, no dependencies
-node scripts/validate.mjs        # frontmatter, routing, catalog, references, secrets
-node scripts/validate.mjs --shards <project>/.pi-workflow/plan   # check a written plan
-node scripts/doctor.mjs          # is this machine actually set up?
-node scripts/apply-models.mjs --dry-run
-node scripts/suggest-models.mjs  # proposal only; --write to apply
-```
-
-`validate.mjs` checks the repo, `doctor.mjs` checks the machine. Both are needed:
-a config that validates cleanly still collapses worker and reviewer onto one model
-on a machine whose provider it does not target.
-
-Conventions for editing this repo are in `AGENTS.md`.
+`validate.mjs` checks the repo; `doctor.mjs` checks the machine. Both matter: a
+config that validates cleanly can still collapse `worker` and `reviewer` onto
+one model on a machine whose provider it doesn't target.
 
 ## License
 

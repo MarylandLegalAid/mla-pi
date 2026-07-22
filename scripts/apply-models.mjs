@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Applies config/models.json to pi-subagents' per-agent model overrides in
-// ~/.pi/agent/settings.json. Zero dependencies by design: `pi install` runs
+// Applies config/models.json to this machine's ~/.pi/agent/settings.json:
+// the `session` role becomes pi's own default model, every other role becomes
+// a pi-subagents agent override. Zero dependencies by design: `pi install` runs
 // `npm install` on fresh machines, and every dependency is a way for that to fail.
 //
 //   node scripts/apply-models.mjs [--dry-run] [--settings <path>]
@@ -19,9 +20,6 @@ const SETTINGS =
   settingsIdx !== -1 && args[settingsIdx + 1]
     ? args[settingsIdx + 1]
     : join(homedir(), ".pi", "agent", "settings.json");
-
-// Roles that map to a pi-subagents builtin rather than a pw- agent.
-const BUILTIN_ROLES = { oracle: "oracle" };
 
 const log = (...a) => console.log(...a);
 const fail = (m) => {
@@ -66,7 +64,11 @@ try {
 }
 
 // ----------------------------------------------------------- build the overrides
+// `session` sets pi's own default model/provider/thinking, not a subagent
+// override - it is what the interactive session and inline build work run on.
+// Every other role maps to the agent mla-pi.mla-<role>.
 const overrides = {};
+const sessionUpdate = {};
 const skipped = [];
 
 for (const [role, spec] of Object.entries(roles)) {
@@ -78,20 +80,26 @@ for (const [role, spec] of Object.entries(roles)) {
     continue;
   }
 
+  if (role === "session") {
+    // model is "provider/id", where id itself may contain slashes (OpenRouter:
+    // provider/org/model) - split on the first slash only.
+    const slash = model.indexOf("/");
+    sessionUpdate.defaultProvider = model.slice(0, slash);
+    sessionUpdate.defaultModel = model.slice(slash + 1);
+    if (typeof spec === "object" && spec.thinking) sessionUpdate.defaultThinkingLevel = spec.thinking;
+    continue;
+  }
+
   const entry = { model };
   if (typeof spec === "object" && spec.thinking) entry.thinking = spec.thinking;
   if (typeof spec === "object" && Array.isArray(spec.fallbackModels)) {
     entry.fallbackModels = spec.fallbackModels;
   }
 
-  if (BUILTIN_ROLES[role]) {
-    overrides[BUILTIN_ROLES[role]] = entry;
-  } else {
-    // pi-subagents resolves package agents under both the bare name and the
-    // `<package>.<name>` form. Write both so the override lands either way.
-    overrides[`pw-${role}`] = entry;
-    overrides[`pi-workflow.pw-${role}`] = entry;
-  }
+  // pi-subagents resolves package agents under both the bare name and the
+  // `<package>.<name>` form. Write both so the override lands either way.
+  overrides[`mla-${role}`] = entry;
+  overrides[`mla-pi.mla-${role}`] = entry;
 }
 
 if (skipped.length) {
@@ -102,12 +110,13 @@ if (skipped.length) {
 // Writing nothing is not success. Every role falling back to the session model
 // puts worker and reviewer on the same model, and build's review gate becomes
 // self-review without ever saying so.
-if (known && !Object.keys(overrides).length) {
+if (known && !Object.keys(overrides).length && !Object.keys(sessionUpdate).length) {
   console.error(
     `\nERROR: not one role resolved against this machine's model catalog.\n` +
       `  config/models.json targets "${cfg.provider ?? "unknown"}" and nothing here matches,\n` +
-      `  so every pw- agent would inherit the session model - including both\n` +
-      `  worker and reviewer, which makes review a second opinion in name only.\n\n` +
+      `  so every mla- agent would inherit whatever session model was already set -\n` +
+      `  including both worker and reviewer, which makes review a second opinion in\n` +
+      `  name only.\n\n` +
       `  Propose a mapping from the models you do have:\n` +
       `    node scripts/suggest-models.mjs\n`,
   );
@@ -116,7 +125,7 @@ if (known && !Object.keys(overrides).length) {
 
 // A partial resolution can collapse the same way: whichever of the two falls back
 // lands on the session model, and the other may already be it.
-const criticalMissing = ["worker", "reviewer"].filter((r) => !overrides[`pw-${r}`]);
+const criticalMissing = ["worker", "reviewer"].filter((r) => !overrides[`mla-${r}`]);
 if (known && criticalMissing.length) {
   log(
     `\nwarning: ${criticalMissing.join(" and ")} did not resolve and will inherit the\n` +
@@ -140,6 +149,7 @@ if (existsSync(SETTINGS)) {
 // Merge, never replace: preserve every unrelated key.
 const next = {
   ...settings,
+  ...sessionUpdate,
   subagents: {
     ...(settings.subagents ?? {}),
     agentOverrides: { ...(settings.subagents?.agentOverrides ?? {}), ...overrides },
@@ -151,6 +161,10 @@ const rendered = `${JSON.stringify(next, null, 2)}\n`;
 if (DRY) {
   log("\n--dry-run: would write these agent overrides:\n");
   log(JSON.stringify(overrides, null, 2));
+  if (Object.keys(sessionUpdate).length) {
+    log("\n--dry-run: would set the session default model:\n");
+    log(JSON.stringify(sessionUpdate, null, 2));
+  }
   process.exit(0);
 }
 
@@ -169,8 +183,11 @@ renameSync(tmp, SETTINGS);
 
 log(`\nwrote ${Object.keys(overrides).length} agent overrides to ${SETTINGS}`);
 for (const [name, entry] of Object.entries(overrides)) {
-  if (!name.startsWith("pi-workflow.")) log(`  ${name.padEnd(16)} ${entry.model}`);
+  if (!name.startsWith("mla-pi.")) log(`  ${name.padEnd(16)} ${entry.model}`);
+}
+if (Object.keys(sessionUpdate).length) {
+  log(`  ${"session".padEnd(16)} ${sessionUpdate.defaultProvider}/${sessionUpdate.defaultModel}`);
 }
 log("\nRestart pi for these to take effect, then verify with:");
-log("  /subagents         pw-* agents (source: package) and their models");
-log("  /subagents-models  builtins only - shows the oracle override");
+log("  /subagents         mla-* agents (source: package) and their models");
+log("  node scripts/doctor.mjs");

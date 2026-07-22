@@ -53,7 +53,8 @@ The response envelope is:
 
 ## Never ask
 
-- Something already answered in `state.json`, `tools.md`, or `research/codebase.md`.
+- Something already answered in `state.json`, the plan overview's Tooling
+  section, or `research/codebase.md`.
 - Something you can determine by reading the repo or running a command.
 - Permission to continue work the user already asked for.
 - A question whose options you have not researched, when the answer depends on
@@ -68,6 +69,7 @@ Seed recommendations with these unless the current task contradicts them:
 - A working local-dev path before anything is deployed.
 - Nothing reaches infrastructure without explicit human action.
 - Public-repo hygiene: no secrets, no planning docs, no build artifacts committed.
-- Solo git flow: straight to `main`, small readable commits.
+- Small, readable commits. `/skill:yeet` confirms main-vs-branch once per repo and
+  remembers the answer — do not re-litigate that choice in this interview.
 - Follow the conventions already in the codebase rather than introducing new ones,
   unless the user is deliberately changing direction.

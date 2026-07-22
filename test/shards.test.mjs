@@ -78,9 +78,9 @@ test("an id that does not match its filename is rejected", () => {
   assert.match(out(r), /must match the filename/);
 });
 
-test("blueprint's NN-<id>.md filename is accepted", () => {
+test("plan's NN-<id>.md filename is accepted", () => {
   const dir = plan({ "01-a": OK_SHARD });
-  // Rename to the prefixed form blueprint actually writes.
+  // Rename to the prefixed form plan actually writes.
   renameSync(join(dir, "01-a.md"), join(dir, "07-01-a.md"));
   const r = check(dir);
   assert.equal(r.code, 0, out(r));

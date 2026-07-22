@@ -1,190 +1,142 @@
 # Verification record
 
-What was actually run against pi 0.81.1 / pi-subagents 0.35.1 /
-`@juicesharp/rpiv-ask-user-question` 2.0.0 on Ubuntu 24.04, 2026-07-21.
+This repo is a refit of a personal project (`pi-workflow`) into `mla-pi`, an
+org-owned package for Maryland Legal Aid. The engineering lessons below carry
+forward from that project's own hard-won debugging; the checks and tests that
+encode them were re-verified against this repo's actual code on 2026-07-22,
+against pi 0.81.1, pi-subagents 0.35.1, `@juicesharp/rpiv-ask-user-question`
+2.0.0, on Ubuntu 24.04. Nothing below is asserted from reading code alone —
+each line was executed.
 
-Nothing below is asserted from reading code. Each line was executed.
-
-Two sources, kept separate on purpose: checks run directly against the repo, and
-what a live session on Fedora 44 established. The live-run section is the author's
-report of a session in another terminal — real evidence, but not re-executed here,
-so it is labelled as such rather than folded into the tables above.
+What was **not** re-run under the new name: a live interactive session driving
+`/skill:plan`, `/skill:build`, `/skill:yeet` end to end (the prior project's
+verification did this for groundwork/blueprint/build under their old names;
+those skills no longer exist here in that form). See "Not yet verified" below.
 
 ## Passed
 
 | Check | Result |
 |---|---|
-| `node scripts/validate.mjs` | valid — 4 skills, 6 agents, 21 catalog entries, 8 cross-references |
-| Package registers with pi | `pi install ./` → all four skills appear in the skill list |
-| Agents register | all six appear as `pi-workflow.pw-*` |
-| Real delegation | `subagent({ agent: "pi-workflow.pw-scout", ... })` ran, read a file, returned contents, wrote nothing |
-| `apply-models.mjs --dry-run` | 13 overrides rendered, no write |
-| `apply-models.mjs` | wrote 13 overrides; backup created; `theme`, `defaultModel`, `defaultProvider`, `packages` all preserved |
-| README bootstrap one-liner | resolves to the package root and finds `scripts/bootstrap.sh` |
-| `bash -n scripts/bootstrap.sh` | syntax clean |
-| `npm test` | 64 pass, 0 fail — `validate.mjs` (repo and `--shards`), `apply-models.mjs`, `suggest-models.mjs`, `doctor.mjs`, `apply-web-search.mjs` against faked machines |
-| `doctor.mjs` on this machine | 0 failures, 0 warnings, 11 ok |
+| `node scripts/validate.mjs --verbose` | valid — 4 skills, 4 agents, 21 catalog entries, 15 cross-references, 10 secret patterns |
+| `npm test` | 126 pass, 0 fail — `validate.mjs`, `models.mjs` (apply + suggest), `doctor.mjs`, `shards.mjs`, `check-routing-fresh.mjs`, `install.mjs`, `session-splash.mjs` |
+| `bash -n install.sh` / `bash -n scripts/bootstrap.sh` | syntax clean |
+| `shellcheck install.sh scripts/bootstrap.sh` | clean |
+| `pi install ./` | package registers; `pi list` shows it at the resolved path |
+| `node scripts/doctor.mjs` on this machine (not configured for OpenRouter) | correctly reports 4 failures: role models absent from this machine's catalog, reviewer/worker collapsed onto the session model, no OpenRouter key, git identity unset — and 3 warnings, 9 ok. Every failure prints the command that fixes it. |
+| `install.sh`'s platform-detection hook (`MLA_PI_TEST_SOURCE=1`) | sourced under fixture `/etc/os-release` files for debian/fedora/arch/unrecognized, with and without the expected package manager on PATH, and a WSL `/proc/version` fixture — all resolve `$FAMILY` correctly (see `test/install.test.mjs`) |
+| `scripts/check-routing-fresh.mjs`'s `compare()` | unit-tested directly (fresh/stale/whitespace-insensitive); the CLI's offline path verified against an unreachable host and a malformed URL |
+
+## Known limitation found during verification
+
+**The "mla-pi registered" doctor check can false-warn on a local-path install.**
+`pi install git:github.com/<org>/mla-pi` (the real staff path) records a
+packages entry containing the literal substring `mla-pi`, which the check
+matches. But `pi install ./` from a checkout — what this verification used —
+records the relative path to the checkout directory instead (here,
+`../../repos/pi-mla`, since the directory is named `pi-mla` not `mla-pi`),
+which does not contain that substring. The check is a `warn`, not a `bad`, and
+its message ("running from a clone?") is still roughly honest in that case —
+but be aware it can warn on a correctly-working local dev install. Not worth
+tightening further: real staff never do a local-path install.
 
 ## Seeded faults — all caught
 
-**These are now automated.** Every row below is a test in `test/validate.test.mjs`,
-run by `npm test` against a throwaway copy of the repo. The table is kept as the
-readable index of what is guarded; the tests are what proves it still fires.
+Every row below is a test in `test/validate.test.mjs`, `test/models.test.mjs`,
+`test/doctor.test.mjs`, or `test/install.test.mjs`, run by `npm test` against a
+throwaway copy of the repo or a fake machine. The table is the readable index
+of what is guarded; the tests are what prove it still fires.
 
 | Fault | Message |
 |---|---|
 | `roles.reviewer` = `roles.worker` | reviewer must differ from worker: same model is not a second opinion |
+| a role's model org is outside the open-weight allowlist | not on the known open-weight org list - confirm its license |
+| a required role (`session`, `scout`, `researcher`, `worker`, `reviewer`) is missing | missing role: \<name\> |
+| a role has no matching `agents/mla-<role>.md` file | role \<name\> has no matching agent |
 | `sudo: false` + sudo in install | declares sudo: false but its install command uses sudo |
-| Hardcoded model id in a skill | skills and agents must read config/models.json |
-| Reference to a nonexistent shared file | references a path that does not exist |
-| Write tool added to `pw-reviewer` | read-only agent but declares edit/write in tools |
-| `AKIA…` key committed | possible AWS access key id committed |
-| Skill frontmatter name mismatch | name must match directory |
-| `pi-subagents.agents` removed from manifest | must be `["./agents"]` or the pw- agents will not load |
+| hardcoded model id in a skill or agent | skills and agents must read config/models.json |
+| reference to a nonexistent shared file | references a path that does not exist |
+| write tool added to a read-only agent (`mla-scout`/`mla-reviewer`/`mla-researcher`) | read-only agent but declares edit/write in tools |
+| agent `package:` field is not `mla-pi` | package must be "mla-pi" to namespace the agent |
+| skill frontmatter name mismatch | name must match directory |
+| `pi-subagents.agents` removed from manifest | must be `["./agents"]` or the mla- agents will not load |
 | npm dependency added | no npm dependencies allowed |
-| Bare `agent: "pw-worker"` | must be namespaced or it will not resolve |
-| `install_fedora` removed from a debian-family entry | install targets the debian family but has no install_fedora |
-| `install_suse:` key added | unknown platform key — supported families are debian, fedora, arch |
-| `sudo: false` + sudo in `install_fedora` | declares sudo: false but install_fedora uses sudo |
+| bare `agent: "mla-worker"` (unnamespaced) | must be namespaced as `mla-pi.mla-worker` or it will not resolve |
+| `install_fedora` removed from a debian-family catalog entry | install targets the debian family but has no install_fedora |
+| `install_suse:` key added | unknown platform key |
+| `AKIA…` key committed | possible AWS access key id committed |
+| doctor: no OpenRouter key (env var or `auth.json`) | no OpenRouter key found |
+| doctor: `defaultProvider`/`defaultModel` don't match the `session` role | session model applied - config wants \<x\> |
+| doctor: `gh auth status` fails or `gh` is missing | not authenticated / gh not on PATH |
+| doctor: no global `git config user.name`/`user.email` | user.name and/or user.email not set globally |
+| doctor: worker and reviewer resolve to the same model after fallback | reviewer is a second opinion: FAIL |
+| `install.sh`: a debian-like ID with no `apt-get` on PATH | resolves to no family rather than a wrong command |
+| `pi.extensions` removed from manifest | pi.extensions must be `["./extensions"]` or the startup splash will not load |
 
-## Bug found and fixed during verification
+## Lessons carried forward from the prior project
 
-**Package agents resolve only under their namespaced name.** Every skill
-originally called `agent: "pw-worker"`. That fails at runtime:
+These were each found in a real run of the earlier `pi-workflow` project and
+are why specific guards exist here. Not re-litigated; kept because the
+failure mode is generic to this shape of tool, not to that project's name.
 
-```
-Unknown agent: pw-scout
-```
+- **A timeout is not a test failure.** A killed subagent that made real
+  progress and one that is genuinely stuck need different handling — blind
+  retry re-does the writing before it can re-do the running, because retries
+  start from a fresh context. `build`'s runaway-detection phase (§4) treats
+  them separately: stuck retries once with findings, undersized asks rather
+  than retrying blind.
+- **A `.gitignore` entry does not untrack what is already staged.** Every
+  skill's preflight and `validate.mjs --shards` both check
+  `git ls-files --cached` explicitly rather than trusting the ignore file.
+- **Package agents resolve only under their namespaced name.** `pi-subagents`
+  registers a package agent as `<package>.<name>` and does not alias the bare
+  form. `validate.mjs` rejects a bare `mla-worker` reference so this cannot
+  regress under the new name either.
+- **The tool catalog must be checked per platform family**, not assumed from
+  one distro. `validate.mjs` fails a family-bound catalog entry missing a
+  sibling command, and `install.sh` and `/skill:plan` both detect the family
+  by fact (`command -v`) rather than trusting `/etc/os-release` alone.
+- **Debugging scratch work must have a home outside `owns` globs**, or a
+  worker's probe scripts get staged and committed by accident. The
+  `.pi-workflow/scratch/<pkg-id>/` convention exists for exactly this.
 
-pi-subagents registers a package agent as `<package>.<name>` and does **not** alias
-the bare form, despite the frontmatter doc implying `name:` is preserved. All
-skills now use `pi-workflow.pw-*`, verified working, and `validate.mjs` rejects the
-bare form so it cannot regress.
+## Not yet verified — needs a live session or a real OpenRouter key
 
-`apply-models.mjs` writes overrides under **both** keys, so routing lands whichever
-form a future pi-subagents accepts.
+- A full `/skill:plan` → `/skill:build` → `/skill:yeet` run on a real task,
+  including: the interview's re-derivation loop actually growing the ledger,
+  build's inline-vs-delegate judgment in practice, the single final reviewer
+  pass, and yeet asking the main-vs-branch question exactly once and
+  remembering it.
+- `install.sh`'s full path end to end on a genuinely bare WSL/Ubuntu or
+  Fedora/Arch machine — this verification only unit-tested platform
+  detection; the package installs, OpenRouter key prompt/validation, git/gh
+  identity setup, and final `bootstrap.sh` handoff were not run for real.
+- `intune/deploy-wsl.ps1` against an actual Intune-managed Windows device —
+  only parsed for syntax validity (`ParseFile`), not executed.
+- `scripts/check-routing-fresh.mjs`'s live fresh/stale path against the real
+  published repo (this sandbox's child processes cannot reach a server bound
+  by the parent test process, so the CLI's fetch behavior was verified only
+  against unreachable/malformed URLs; the underlying `compare()` logic is
+  unit-tested directly and does not depend on this).
+- Real OpenRouter model IDs and prices in `config/models.json` were fetched
+  live at write time (2026-07-22) but will drift; see `docs/admin.md` for how
+  to refresh them.
+- **`extensions/session-splash.js` has never actually run inside pi.** The
+  layout/formatting logic in `scripts/session-splash.mjs` is unit-tested
+  directly (box width math, the narrow-terminal fallback, the missing-model
+  fallback, the pixel-art wordmark's outline/highlight/gradient/shadow
+  compositing in both truecolor and 256-color mode), and the extension
+  registers via the documented `ctx.ui.setHeader()` pattern from pi's own
+  shipped `custom-header.ts` example — but no live `pi` session has rendered
+  it. This machine's global `pi` install went missing mid-session (see git
+  history / ask John) before that check happened. The wordmark's actual
+  *colors* were checked, though not inside a real terminal: its ANSI output
+  was converted to HTML and screenshotted (`/tmp/.../scratchpad/splash-preview.html`,
+  not saved anywhere durable) to confirm the gradient/outline/shadow render
+  as intended — but a real terminal's font, line-height, and color-mode
+  detection could still differ. Before rollout: start `pi` in a real terminal
+  at a normal width, a narrowed width, with `OPENROUTER_API_KEY` unset, and
+  with `quietStartup: true`, and confirm each renders as expected.
 
-## Bug found in use — Fedora, 2026-07-21
-
-**The catalog was Ubuntu-only and nothing checked it.** A `/skill:groundwork` run
-on Fedora 44 offered `sudo apt install …`; the machine has `dnf`/`dnf5` and no
-`apt` or `snap` at all. Five entries were affected — `gh`, `az`, `pwsh`, `jq`,
-`ripgrep` — plus `playwright-deps`, whose `playwright install-deps` supports only
-Debian and Ubuntu. `skills/groundwork/SKILL.md` also hardcoded *"the exact install
-command for Ubuntu 24.04"* into the researcher prompt, so the non-catalog path
-returned Ubuntu commands too.
-
-Fixed by detecting the platform before any command is selected, per-family
-`install_<family>` keys, and a validator rule that fails a family-bound entry
-missing its siblings. Per-family commands were taken from each vendor's own
-install page — GitHub CLI `docs/install_linux.md`, Microsoft Learn for `az` and
-PowerShell — not translated from the Debian ones.
-
-## Live run — Fedora 44, 2026-07-21
-
-First use of the workflow on a real sample project, in an interactive session.
-Reported by the author rather than re-executed here.
-
-**Package version under test: `5f66219`** — the initial commit, so *before* the
-platform fix above and before the `/subagents-models` doc correction. A git-installed
-package does not track the remote until `pi update`, so this run exercised the
-Ubuntu-only catalog. That is how the bug was found.
-
-| Stage | What it establishes |
-|---|---|
-| `/skill:groundwork` | Ran to the consent step and beyond; surfaced the `apt`-on-Fedora defect. `ask_user_question` therefore rendered against a real dialog. Completed far enough that blueprint could follow. |
-| `/skill:blueprint` | Completed and produced a plan — build reads `plan/`, and build started, so the shards exist and are readable. |
-| `/skill:build` | **In flight at time of writing. Outcome unrecorded.** |
-| `/subagents` | Lists all six `pw-*` agents with source `package`, after a pi restart. Their models were *not* compared against `config/models.json`. |
-
-Still open from this run, and not to be inferred from it:
-
-- The groundwork re-probe loop and its `tools.md` output were not inspected.
-- Whether the blueprint ledger **grows** when an answer implies new decisions —
-  a plan existing does not show the interview looped rather than ran once.
-- Everything about build: parallel waves, the reviewer gate on a different model,
-  per-package commits, the soft-budget prompt.
-
-## Bug found in use — build timeout, 2026-07-21
-
-**A scraping package was killed at 25 minutes having written the scrapers but not
-run them.** The timeout fired as configured; the design around it was wrong in
-three ways.
-
-1. `config/limits.json` calls the timeout "runaway detection… not to ration work",
-   and build repeated it. Nothing distinguished a **stuck** agent from one whose
-   job was simply larger than the budget. This agent had made real progress.
-2. The timeout path retried blind — no findings handed over, and `context: "fresh"`
-   means the retry re-does the writing before it can reach the running. With
-   `maxRetriesPerPackage: 2` that is up to 75 minutes to reach the same wall. The
-   *test-failure* path had always been smarter, passing findings to attempt 2.
-3. The root cause was upstream: shard invariant 5 sizes a package by its **diff**,
-   which measures writing, not running. A 200-line scraper is unbounded at runtime
-   because rate limits, pagination and third-party uptime are not the plan's to
-   control.
-
-Fixed: build's Phase C now separates timeout from failure — establish what survived
-in the working tree, report it concretely, judge stuck vs undersized, and for
-undersized **ask** (split / raise `timeout_min` / manual / skip) rather than retry.
-Shards gained `network` and `timeout_min`; blueprint must split write-from-run for
-third-party work; `validate.mjs --shards` enforces it.
-
-Also found while fixing: `shared/plan-shard-schema.md` claimed
-`scripts/validate.mjs` checked shards. It never had — plans live in the gitignored
-`.pi-workflow/`, outside the repo the validator walks. `--shards <dir>` makes the
-claim true rather than deleting it.
-
-## Bugs found in a live build — junk-drawer, 2026-07-21
-
-The `pkg-02-scrape-content` package timed out twice (25:00 killed, then 16:54
-SIGTERM), $0.95 spent, `src/data/` empty. Root cause was not the crawl being slow.
-
-| Finding | Evidence |
-|---|---|
-| `lib.mjs` exported `launchBrowser()` returning `{browser, context}` and **nothing created a page**; no `index.mjs` existed | `TypeError: page.goto is not a function at home.mjs:4` |
-| `waitUntil: 'networkidle'` against a site with live analytics never settles | bash calls dying at the 180s command timeout, twice in one 4-minute window |
-| A missing selector makes a locator read wait its full default timeout; inside a loop that multiplies | `home` scraper at 90s, six `.content` boxes |
-| Debug probes written **inside `owns`**, so a commit would have swept them up | 25 `inspect_*` / `test_*` files in `scripts/scrape/` |
-| `home.mjs` returned early on its fallback branch **without calling `writeJSON`** | `home.json` unreachable on that path |
-| **`.pi-workflow/` and `.pi-subagents/` were not gitignored and 37 files were staged** | `git ls-files --cached` — including 400KB run transcripts |
-
-After fixing: **8/8 scrapers, ~20 seconds total.**
-
-The last one is the sharpest. `shared/preflight.md` told every skill to add
-`.pi-workflow/` to `.gitignore` — but **a .gitignore entry does not untrack what is
-already in the index**, and nothing checked. Preflight now verifies with
-`git ls-files --cached` and prescribes `git rm -r --cached`;
-`validate.mjs --shards` fails on both the missing ignore and the tracked files.
-
-Fixed in the repo: scratch convention (`.pi-workflow/scratch/<pkg-id>/`) so probes
-cannot land in `owns`; `pw-worker` must bound every command it runs; build reads the
-file list before staging and refuses paths under the artifact directories; shards
-must state the target's DOM shape so a worker never reverse-engineers it under a
-clock.
-
-## Not yet verified — needs an interactive session
-
-These cannot run through `pi -p`; they need the TUI.
-
-- [x] `ask_user_question` dialog rendering — exercised by the groundwork run above.
-      Previews, per-option notes and multi-select were not individually confirmed.
-- [ ] A full `/skill:groundwork` run: probe → consent → install → re-probe loop →
-      `tools.md` — reached consent, back half unverified
-- [ ] `/skill:groundwork` on a non-Debian machine offering only commands for that
-      machine's package manager, and researching rather than guessing where the
-      catalog has no entry for the family — **needs a run on `e322b92` or later**
-- [ ] A full `/skill:blueprint` interview, including that the ledger **grows** when
-      an answer implies new decisions — a plan was produced; the looping was not
-      observed
-- [ ] A `/skill:build` run with a real parallel wave, reviewer gate and per-package
-      commits — one run in flight, result pending
-- [ ] `/skill:yeet` refusing on a seeded `AKIA…` in a staged file
-- [x] `/subagents` listing the six `pw-*` agents with source `package`, after a pi
-      restart. Models not yet checked against `config/models.json`.
-      `/subagents-models` is builtin-only — it will only ever show the `oracle`
-      override, never the `pw-*` routing.
-
-Suggested first real run, small enough to inspect end to end:
-
-> a Node HTTP service with a `/healthz` endpoint, dockerized, deployable to Render,
-> with tests and CI
+Suggested first real run once a staff OpenRouter key exists: something small
+enough to inspect end to end, e.g. a one-endpoint health-check service with a
+test and a Dockerfile.

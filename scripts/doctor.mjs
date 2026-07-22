@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Answers one question: is pi-workflow actually set up on this machine?
+// Answers one question: is mla-pi actually set up on this machine?
 //
 //   node scripts/doctor.mjs
 //
@@ -35,6 +35,7 @@ const agentDir =
   process.env.PI_CODING_AGENT_DIR ??
   (process.env.XDG_CONFIG_HOME ? join(process.env.XDG_CONFIG_HOME, "pi") : join(homedir(), ".pi"));
 const settingsPath = join(agentDir, "agent", "settings.json");
+const authPath = join(agentDir, "agent", "auth.json");
 
 // ------------------------------------------------------------------ 1. pi
 let piVersion = null;
@@ -67,13 +68,13 @@ for (const [name, why] of Object.entries(REQUIRED)) {
   }
 }
 
-const selfInstalled = packages.some((p) => typeof p === "string" && p.includes("pi-workflow"));
-if (selfInstalled) pass("pi-workflow registered", "present in settings.packages");
+const selfInstalled = packages.some((p) => typeof p === "string" && p.includes("mla-pi"));
+if (selfInstalled) pass("mla-pi registered", "present in settings.packages");
 else
   warn(
-    "pi-workflow registered",
+    "mla-pi registered",
     "not in settings.packages - running from a clone?",
-    "pi install git:github.com/jeffcottj/pi-workflow",
+    "pi install git:github.com/<MLA-ORG>/mla-pi",
   );
 
 // ------------------------------------------------------------------ 3. agents
@@ -92,7 +93,7 @@ if (JSON.stringify(manifest["pi-subagents"]?.agents) === JSON.stringify(["./agen
   bad(
     "agents declared",
     "package.json is missing the pi-subagents.agents key",
-    "the pw- agents will not load; restore the key",
+    "the mla- agents will not load; restore the key",
   );
 }
 
@@ -147,20 +148,55 @@ if (!catalog) {
   }
 }
 
-// ------------------------------------------------------------- 5. routing applied
+// ------------------------------------------------------------- 5. OpenRouter auth
+const auth = readJson(authPath) ?? {};
+const hasOpenRouterKey =
+  Boolean(process.env.OPENROUTER_API_KEY) || Boolean(auth.openrouter?.key);
+if (hasOpenRouterKey) {
+  pass("OpenRouter auth", auth.openrouter ? "key in auth.json" : "OPENROUTER_API_KEY set");
+} else {
+  bad(
+    "OpenRouter auth",
+    "no OpenRouter key found (env var or auth.json)",
+    "export OPENROUTER_API_KEY=...   (or: pi login openrouter). See docs/admin.md.",
+  );
+}
+
+// ------------------------------------------------------------- 6. session model
+// The one role with no agent override: it sets pi's own default model.
+const sessionRoleModel = modelOf("session");
+if (sessionRoleModel) {
+  const [wantProvider, ...wantRest] = sessionRoleModel.split("/");
+  const wantModel = wantRest.join("/");
+  const applied = settings.defaultProvider === wantProvider && settings.defaultModel === wantModel;
+  if (applied) {
+    pass("session model applied", `${settings.defaultProvider}/${settings.defaultModel}`);
+  } else {
+    warn(
+      "session model applied",
+      `defaultProvider/defaultModel is ${settings.defaultProvider ?? "(unset)"}/${settings.defaultModel ?? "(unset)"}, config wants ${sessionRoleModel}`,
+      "node scripts/apply-models.mjs",
+    );
+  }
+}
+
+// ------------------------------------------------------------- 7. routing applied
 const overrides = settings.subagents?.agentOverrides ?? {};
-const routed = Object.keys(roles).filter((r) => overrides[`pw-${r}`] || overrides[r]);
-if (!Object.keys(overrides).length) {
+const agentRoles = Object.keys(roles).filter((r) => r !== "session");
+const routed = agentRoles.filter((r) => overrides[`mla-${r}`] || overrides[r]);
+if (!agentRoles.length) {
+  // Nothing to check.
+} else if (!routed.length) {
   warn(
     "model routing applied",
     "no agentOverrides in settings - every agent inherits the session model",
     "node scripts/apply-models.mjs",
   );
 } else {
-  pass("model routing applied", `${routed.length} of ${Object.keys(roles).length} roles pinned`);
+  pass("model routing applied", `${routed.length} of ${agentRoles.length} roles pinned`);
 }
 
-// ------------------------------------------------------------- 6. search curator
+// ------------------------------------------------------------- 8. search curator
 const webSearchPath = join(agentDir, "web-search.json");
 const web = readJson(webSearchPath);
 if (!web) {
@@ -171,6 +207,53 @@ if (!web) {
   );
 } else {
   pass("search curator", `workflow: ${web.workflow ?? "(unset - defaults to summary-review)"}`);
+}
+
+// ------------------------------------------------------------------ 9. git identity
+let gitName = "";
+let gitEmail = "";
+try {
+  gitName = execFileSync("git", ["config", "--global", "user.name"], { encoding: "utf8", timeout: 5_000 }).trim();
+} catch {
+  /* unset */
+}
+try {
+  gitEmail = execFileSync("git", ["config", "--global", "user.email"], { encoding: "utf8", timeout: 5_000 }).trim();
+} catch {
+  /* unset */
+}
+if (gitName && gitEmail) {
+  pass("git identity", `${gitName} <${gitEmail}>`);
+} else {
+  bad(
+    "git identity",
+    "user.name and/or user.email not set globally",
+    'git config --global user.name "Your Name" && git config --global user.email "you@example.org"',
+  );
+}
+
+// -------------------------------------------------------------------- 10. gh auth
+try {
+  execFileSync("gh", ["auth", "status"], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
+  pass("gh auth", "authenticated");
+} catch (e) {
+  const missing = e.code === "ENOENT";
+  bad("gh auth", missing ? "gh not on PATH" : "not authenticated", "gh auth login");
+}
+
+// --------------------------------------------------------- 11. routing freshness
+try {
+  const out = execFileSync("node", [join(ROOT, "scripts", "check-routing-fresh.mjs")], {
+    encoding: "utf8",
+    timeout: 10_000,
+  }).trim();
+  if (out.startsWith("stale")) {
+    warn("routing freshness", out, `pi update git:github.com/<MLA-ORG>/mla-pi && node ${join(ROOT, "scripts", "apply-models.mjs")}`);
+  } else {
+    pass("routing freshness", out || "up to date");
+  }
+} catch {
+  warn("routing freshness", "check-routing-fresh.mjs failed to run", "ignore if offline");
 }
 
 // ------------------------------------------------------------------- report

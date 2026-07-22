@@ -1,10 +1,10 @@
 # Tool catalog
 
-`tools.yaml` is the curated inventory `/skill:groundwork` probes before a task.
-It exists so groundwork does not re-research `az` and `docker` on every project.
-Anything not in the catalog is still handled — groundwork delegates to a
-researcher subagent for niche or unfamiliar tooling — but catalog hits are fast,
-deterministic, and reflect decisions you have already made.
+`tools.yaml` is the curated inventory `/skill:plan` probes before a task.
+It exists so plan does not re-research `az` and `docker` on every project.
+Anything not in the catalog is still handled — plan delegates to the
+`mla-researcher` agent for niche or unfamiliar tooling — but catalog hits are
+fast, deterministic, and reflect decisions you have already made.
 
 ## Entry schema
 
@@ -19,7 +19,7 @@ deterministic, and reflect decisions you have already made.
   install_fedora: <command>
   install_arch: <command>
   install_notes: <string>    # optional; PATH additions, post-install steps, caveats
-  sudo: true | false         # required; true => groundwork prints it, never runs it
+  sudo: true | false         # required; true => plan prints it, never runs it
   scope: global | project    # required
   auth: <command>            # optional; the interactive login. Never run by an agent.
   auth_check: <command>      # optional; cheap non-interactive credential check
@@ -28,7 +28,7 @@ deterministic, and reflect decisions you have already made.
 
 ## Platforms
 
-Supported families are `debian`, `fedora` and `arch`. groundwork detects the
+Supported families are `debian`, `fedora` and `arch`. plan detects the
 machine's family, then resolves a command: `install_<family>` first, the bare
 `install` only if the package manager it invokes is actually present, and failing
 both it researches the command for that platform rather than guessing.
@@ -54,16 +54,16 @@ can justify is worth more than a command you have not run.
   network round-trip that can hang. Prefer `--version`. Where a CLI can exist
   without working (Docker), detect the working state (`docker info`).
 - **If any install variant contains `sudo`, `sudo: true`.** This is enforced by
-  `scripts/validate.mjs` across `install` and every `install_<family>`. groundwork
+  `scripts/validate.mjs` across `install` and every `install_<family>`. plan
   never executes a sudo command; it prints it for you to run in another terminal
   and then re-probes.
 - **`auth` is never run by an agent.** Logins are interactive by nature. They are
-  surfaced as outstanding manual steps in `tools.md`.
+  surfaced as outstanding manual steps in the plan overview's Tooling section.
 - **`scope: global`** for anything reusable across projects — common dev tooling
   and your standing hosting/infra stack. **`scope: project`** for niche or
-  project-specific tooling. groundwork asks when the catalog does not classify.
+  project-specific tooling. plan asks when the catalog does not classify.
 - Use `install: MANUAL` rather than guessing a command. A wrong install command is
-  worse than no entry: groundwork will run a non-sudo one.
+  worse than no entry: plan will run a non-sudo one.
 
 ## Adding a tool
 

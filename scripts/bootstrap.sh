@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# pi-workflow bootstrap: installs the companion pi packages the skills depend on
-# and applies model routing. Safe to re-run.
+# mla-pi bootstrap: installs the companion pi packages the skills depend on and
+# applies OpenRouter model routing. Safe to re-run. Called by install.sh during
+# the one-command install, and by /skill:setup any time something needs fixing.
 #
 # pi does not install pi packages transitively, so `pi install git:...` gets the
 # skills but not the packages they call. This closes that gap.
@@ -18,7 +19,7 @@ REQUIRED=(
 info() { printf '  %s\n' "$*"; }
 head() { printf '\n%s\n' "$*"; }
 
-head "pi-workflow bootstrap"
+head "mla-pi bootstrap"
 info "package root: $ROOT"
 
 # ------------------------------------------------------------------ check pi
@@ -32,7 +33,7 @@ info "pi version:   $PI_VERSION"
 
 case "$PI_VERSION" in
   0.[0-7][0-9].*|0.[0-9].*)
-    info "warning: pi-workflow is developed against pi 0.81+; some features may be missing"
+    info "warning: mla-pi is developed against pi 0.81+; some features may be missing"
     ;;
 esac
 
@@ -60,13 +61,15 @@ done
 # ------------------------------------------------------------ model routing
 # apply-models exits non-zero when nothing resolved. That is not a reason to abort
 # - the packages are already installed and useful - but it must not read as success.
-head "model routing"
+head "OpenRouter model routing"
 ROUTING_OK=1
 if ! node "$ROOT/scripts/apply-models.mjs"; then
   ROUTING_OK=0
   info ""
-  info "Model routing did not take. The packages are installed and the skills will"
-  info "load, but every agent will inherit your session model until this is fixed."
+  info "Model routing did not take - most likely no OpenRouter key is configured yet"
+  info "(export OPENROUTER_API_KEY=... or pi login openrouter). The packages are"
+  info "installed and the skills will load, but every agent will inherit whatever"
+  info "session model is already set until this is fixed."
 fi
 
 # ------------------------------------------------------------ search curator
@@ -89,13 +92,14 @@ fi
 if [ "$ROUTING_OK" -eq 0 ]; then
   info ""
   info "Fix model routing first:"
-  info "  node $ROOT/scripts/suggest-models.mjs           # propose a mapping"
-  info "  node $ROOT/scripts/suggest-models.mjs --write   # apply it"
-  info "  node $ROOT/scripts/apply-models.mjs             # route the agents"
+  info "  export OPENROUTER_API_KEY=...            # or: pi login openrouter"
+  info "  node $ROOT/scripts/apply-models.mjs"
+  info "If that still fails, propose a fallback mapping:"
+  info "  node $ROOT/scripts/suggest-models.mjs --write"
 fi
 info ""
 info "Then check the skills are visible:"
-info "  /skill:groundwork   /skill:blueprint   /skill:build   /skill:yeet"
+info "  /skill:plan   /skill:build   /skill:yeet"
 info ""
 info "Re-run the checks any time:"
 info "  node $ROOT/scripts/doctor.mjs"
