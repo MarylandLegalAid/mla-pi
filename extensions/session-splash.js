@@ -31,7 +31,7 @@ import {
   HEADING_TIPS,
   HEADING_STATUS,
 } from "../scripts/session-splash.mjs";
-import { frameCount, phaseForTick, tickIntervalMs } from "../scripts/splash/render-core.mjs";
+import { phaseForTick, tickIntervalMs } from "../scripts/splash/render-core.mjs";
 
 const PKG_PATH = fileURLToPath(new URL("../package.json", import.meta.url));
 
@@ -89,12 +89,24 @@ function colorize(lines, theme, { title, headings, welcome }) {
 }
 
 export default function (pi) {
-  // Handle for the startup shimmer-intro's timer (below). Extension factories run
+  // Handle for the startup shimmer's timer (below). Extension factories run
   // once per pi process, but session_start can fire again within that same
   // process (/resume, /fork, /model-switch) - session_shutdown is pi's
   // documented cleanup hook for exactly that, and stopSplashAnimation() is
   // also called defensively at the top of every session_start in case a
   // shutdown was skipped, so this timer can never leak or stack.
+  //
+  // The shimmer itself loops indefinitely rather than stopping after one
+  // sweep - it's the first thing on screen and worth lingering on. It stops
+  // as soon as the user does anything (the "input" event, which fires once
+  // per submitted prompt, before skill/template expansion), which is also
+  // what keeps it safe: nothing else grows the frame beneath a freshly-set
+  // header, so the header can't have scrolled out of the viewport before
+  // that point. Continuing to animate a header pi-tui's differential
+  // renderer no longer considers "on screen" forces a full-screen
+  // clear-and-redraw on every tick (see pi-tui's TUI.doRender: a change
+  // above the tracked viewport top falls back to fullRender) - stopping on
+  // first input sidesteps that rather than trying to detect it.
   let splashAnimationTimer;
   const stopSplashAnimation = () => {
     if (splashAnimationTimer) {
@@ -103,6 +115,7 @@ export default function (pi) {
     }
   };
   pi.on("session_shutdown", stopSplashAnimation);
+  pi.on("input", stopSplashAnimation);
 
   pi.on("session_start", async (_event, ctx) => {
     try {
@@ -141,13 +154,12 @@ export default function (pi) {
         scheme: wordmarkScheme(settings),
       };
 
-      // Brief dither-shimmer intro (~1.2s, per scripts/splash/splash.config.json):
-      // pi's own render loop owns cursor/flicker/scroll handling for a header
-      // component, so this is just an advancing phase fed through
-      // invalidate()+requestRender() on a bounded timer, settling on the
-      // static frame once the configured animation duration elapses.
+      // Dither-shimmer intro: pi's own render loop owns cursor/flicker/scroll
+      // handling for a header component, so this is just an advancing phase
+      // (looping every splash.config.json animation.durationMs) fed through
+      // invalidate()+requestRender() on a timer. See the stopSplashAnimation
+      // comment above for how/why it stops.
       const { config: splashConfig } = loadSplashConfig();
-      const totalFrames = frameCount(splashConfig);
       let tick = 0;
       let header;
 
@@ -155,9 +167,8 @@ export default function (pi) {
         header = {
           render(width) {
             const colorMode = theme.getColorMode?.() ?? "truecolor";
-            const animation = tick < totalFrames ? "shimmer" : "static";
             const phase = phaseForTick(tick, splashConfig);
-            const plain = buildSplashLines({ width, colorMode, ...splashData, animation, phase });
+            const plain = buildSplashLines({ width, colorMode, ...splashData, animation: "shimmer", phase });
             return colorize(plain, theme, { title, headings, welcome });
           },
           invalidate() {},
@@ -165,10 +176,6 @@ export default function (pi) {
 
         splashAnimationTimer = setInterval(() => {
           tick++;
-          if (tick > totalFrames) {
-            stopSplashAnimation();
-            return;
-          }
           header.invalidate();
           tui.requestRender();
         }, tickIntervalMs(splashConfig));

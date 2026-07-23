@@ -56,8 +56,9 @@ export function mascotCanvasSize(word) {
  * accepts this project's existing "truecolor"/"256color" values (mapped onto
  * render-core's "truecolor"/"256"/"none"). `animation`/`phase` are the same
  * "static"/"pan"/"shimmer" knobs scripts/splash-cli.mjs animates with -
- * extensions/session-splash.js uses them to play a bounded shimmer intro inside
- * pi's own render loop, sharing this one implementation of the artwork.
+ * extensions/session-splash.js uses them to play a shimmer intro (looping
+ * until the user's first input) inside pi's own render loop, sharing this
+ * one implementation of the artwork.
  */
 export function buildMascotLines(word, { colorMode = "truecolor", padTo, animation = "static", phase = 0, scheme } = {}) {
   const { config } = loadSplashConfig();
