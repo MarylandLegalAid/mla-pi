@@ -78,6 +78,7 @@ export const TIPS = [
 // colorizing, instead of duplicating the literal text.
 export const HEADING_TIPS = "Getting started";
 export const HEADING_STATUS = "Status";
+export const HEADING_MODEL = "Model";
 
 // ----------------------------------------------------------------------- helpers
 /** Collapse a home-directory prefix to `~`. */
@@ -140,6 +141,51 @@ function wrapToWidth(text, width) {
 }
 
 /**
+ * `indent + cmd + description` lines for the tips list, with every `cmd`
+ * padded to the widest one so descriptions all start in the same column -
+ * without it, "/skill:plan" (11 chars) and "/skill:build" (12 chars) push
+ * their descriptions a character out of step with each other.
+ */
+function tipLines(tips, width, indent = "") {
+  const cmdWidth = Math.max(...tips.map((t) => t.cmd.length));
+  const lines = [];
+  for (const t of tips) {
+    const prefix = `${indent}${t.cmd.padEnd(cmdWidth)}  `;
+    const [first, ...rest] = wrapToWidth(t.desc, Math.max(1, width - prefix.length));
+    lines.push(`${prefix}${first ?? ""}`);
+    for (const cont of rest) lines.push(`${" ".repeat(prefix.length)}${cont}`);
+  }
+  return lines;
+}
+
+/**
+ * Concatenate right-column `sections` (each a heading + its body lines),
+ * separated by blank lines, stretching those separators to spend any extra
+ * room needed to reach `targetHeight` - so the right column ends up close to
+ * as tall as the wordmark-driven left column instead of trailing off into a
+ * block of empty cells partway down the box. Never below one blank line
+ * between sections; if the sections already meet or exceed targetHeight,
+ * that one-line minimum is all that's used.
+ */
+function stretchSections(sections, targetHeight) {
+  const gaps = sections.length - 1;
+  if (gaps <= 0) return sections.flat();
+  const contentHeight = sections.reduce((sum, s) => sum + s.length, 0);
+  const gapLines = Math.max(gaps, targetHeight - contentHeight);
+  const base = Math.floor(gapLines / gaps);
+  let remainder = gapLines % gaps;
+  const lines = [];
+  sections.forEach((section, i) => {
+    lines.push(...section);
+    if (i >= gaps) return;
+    const blanks = base + (remainder > 0 ? 1 : 0);
+    remainder = Math.max(0, remainder - 1);
+    lines.push(...Array(blanks).fill(""));
+  });
+  return lines;
+}
+
+/**
  * Lay out the two-column boxed splash as text lines (the wordmark carries its
  * own ANSI color; everything else is plain, colored later by the extension).
  * Falls back to a single-column, borderless layout below NARROW_WIDTH so a
@@ -163,12 +209,9 @@ export function buildSplashLines({
   const welcome = welcomeName ? `Welcome back, ${welcomeName}!` : "Welcome!";
 
   if (width < NARROW_WIDTH) {
-    const lines = [title, "", welcome, "", modelLine, cwdLine, "", HEADING_TIPS];
-    for (const t of tips) lines.push(`  ${t.cmd}  ${t.desc}`);
-    if (status.length) {
-      lines.push("", HEADING_STATUS);
-      for (const s of status) lines.push(`  ${s}`);
-    }
+    const lines = [title, "", welcome, "", cwdLine, "", HEADING_TIPS, ...tipLines(tips, width, "  ")];
+    if (status.length) lines.push("", HEADING_STATUS, ...status.map((s) => `  ${s}`));
+    lines.push("", HEADING_MODEL, `  ${modelLine}`);
     return lines;
   }
 
@@ -178,21 +221,14 @@ export function buildSplashLines({
   const rightWidth = innerWidth - leftWidth - 3; // " │ " column divider
 
   const mascotLines = buildMascotLines("pi4MLA", { colorMode, padTo: leftWidth, animation, phase, scheme });
-  const leftLines = [...mascotLines, "", welcome, "", modelLine, cwdLine];
+  const leftLines = [...mascotLines, "", welcome, "", cwdLine];
 
-  const rightLines = [...wrapToWidth(HEADING_TIPS, rightWidth)];
-  for (const t of tips) {
-    const prefix = `${t.cmd}  `;
-    const [first, ...rest] = wrapToWidth(t.desc, Math.max(1, rightWidth - prefix.length));
-    rightLines.push(`${prefix}${first ?? ""}`);
-    for (const cont of rest) rightLines.push(`${" ".repeat(prefix.length)}${cont}`);
-  }
+  const sections = [[...wrapToWidth(HEADING_TIPS, rightWidth), ...tipLines(tips, rightWidth)]];
   if (status.length) {
-    rightLines.push("", ...wrapToWidth(HEADING_STATUS, rightWidth));
-    for (const s of status) {
-      for (const wrapped of wrapToWidth(s, rightWidth)) rightLines.push(wrapped);
-    }
+    sections.push([...wrapToWidth(HEADING_STATUS, rightWidth), ...status.flatMap((s) => wrapToWidth(s, rightWidth))]);
   }
+  sections.push([...wrapToWidth(HEADING_MODEL, rightWidth), ...wrapToWidth(modelLine, rightWidth)]);
+  const rightLines = stretchSections(sections, leftLines.length);
 
   const rows = Math.max(leftLines.length, rightLines.length);
   const titleBar = ` ${title} `;

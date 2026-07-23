@@ -30,6 +30,7 @@ import {
   loadSplashConfig,
   HEADING_TIPS,
   HEADING_STATUS,
+  HEADING_MODEL,
 } from "../scripts/session-splash.mjs";
 import { phaseForTick, tickIntervalMs } from "../scripts/splash/render-core.mjs";
 
@@ -140,7 +141,7 @@ export default function (pi) {
 
       const title = `pi4MLA v${pkg?.version ?? "?"} · pi ${VERSION}`;
       const welcome = name ? `Welcome back, ${name}!` : "Welcome!";
-      const headings = [HEADING_TIPS, HEADING_STATUS];
+      const headings = [HEADING_TIPS, HEADING_STATUS, HEADING_MODEL];
       const splashData = {
         pkgVersion: pkg?.version ?? "?",
         piVersion: VERSION,
