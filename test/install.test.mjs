@@ -6,8 +6,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { join } from "node:path";
-import { writeFileSync, symlinkSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { writeFileSync, symlinkSync, readFileSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { REPO, tmp } from "./support/harness.mjs";
 
@@ -56,6 +56,10 @@ function detectPlatform({ osReleaseFields, isWsl = false, path = process.env.PAT
       encoding: "utf8",
       env: {
         PATH: path,
+        // HOME is set on every real invocation; install.sh reads it (for the npm
+        // prefix) before the test-source stop point, and set -u makes its absence
+        // fatal. The isolated PATH above is what these tests actually probe.
+        HOME: process.env.HOME,
         MLA_PI_OS_RELEASE: osRelease(osReleaseFields),
         MLA_PI_PROC_VERSION: procVersion,
       },
@@ -139,6 +143,92 @@ test("WSL is detected and noted, but behaves like native Linux otherwise", () =>
   });
   assert.equal(family, "debian");
   assert.match(stdout, /WSL detected/);
+});
+
+/**
+ * Source install.sh up to the platform-detection stop point, then call
+ * persist_npm_path against a throwaway $HOME. `precreate` lists rc files (relative
+ * to that HOME) to touch beforehand, which is how a test declares "this shell is
+ * present" without depending on which shells happen to be installed on the runner.
+ * SHELL is pinned to /bin/bash on purpose: the bug this guards against was keying
+ * the whole decision off $SHELL, so the function must ignore it.
+ */
+function persistNpmPath({ precreate = [] } = {}) {
+  const home = tmp("piwf-home-");
+  for (const rel of precreate) {
+    const path = join(home, rel);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "");
+  }
+  const procVersion = join(tmp("piwf-procver-"), "version");
+  writeFileSync(procVersion, "Linux version 6.8 (generic)\n");
+
+  execFileSync(
+    BASH,
+    ["-c", `set -e; MLA_PI_TEST_SOURCE=1 source "${INSTALL_SH}"; persist_npm_path`],
+    {
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        HOME: home,
+        SHELL: "/bin/bash",
+        MLA_PI_OS_RELEASE: osRelease({ ID: "fedora", VERSION_ID: "44" }),
+        MLA_PI_PROC_VERSION: procVersion,
+      },
+    },
+  );
+  return { home, bindir: join(home, ".npm-global/bin") };
+}
+
+test("persist_npm_path puts the npm bin dir on PATH for every shell present, in each shell's own syntax", () => {
+  const { home, bindir } = persistNpmPath({
+    precreate: [".bashrc", ".zshrc", ".config/fish/config.fish"],
+  });
+
+  const bashrc = readFileSync(join(home, ".bashrc"), "utf8");
+  const zshrc = readFileSync(join(home, ".zshrc"), "utf8");
+  const fishrc = readFileSync(join(home, ".config/fish/config.fish"), "utf8");
+
+  assert.match(bashrc, new RegExp(`export PATH="${bindir}:\\$PATH"`));
+  assert.match(zshrc, new RegExp(`export PATH="${bindir}:\\$PATH"`));
+  // fish can't parse `export PATH=...`; it needs fish_add_path.
+  assert.match(fishrc, new RegExp(`fish_add_path ${bindir}`));
+  assert.doesNotMatch(fishrc, /export PATH/);
+});
+
+test("persist_npm_path reaches fish even though $SHELL is bash - the original regression", () => {
+  // fish is the only shell with a config file here; $SHELL says bash. The old
+  // code wrote to ~/.bashrc only and left `pi` off fish's PATH.
+  const { home, bindir } = persistNpmPath({ precreate: [".config/fish/config.fish"] });
+  const fishrc = readFileSync(join(home, ".config/fish/config.fish"), "utf8");
+  assert.match(fishrc, new RegExp(`fish_add_path ${bindir}`));
+});
+
+test("persist_npm_path is idempotent - a second run adds no duplicate PATH line", () => {
+  const home = tmp("piwf-home-");
+  mkdirSync(join(home, ".config/fish"), { recursive: true });
+  writeFileSync(join(home, ".config/fish/config.fish"), "");
+  const procVersion = join(tmp("piwf-procver-"), "version");
+  writeFileSync(procVersion, "Linux version 6.8 (generic)\n");
+  const env = {
+    PATH: process.env.PATH,
+    HOME: home,
+    SHELL: "/bin/bash",
+    MLA_PI_OS_RELEASE: osRelease({ ID: "fedora", VERSION_ID: "44" }),
+    MLA_PI_PROC_VERSION: procVersion,
+  };
+  const run = () =>
+    execFileSync(BASH, ["-c", `set -e; MLA_PI_TEST_SOURCE=1 source "${INSTALL_SH}"; persist_npm_path`], {
+      encoding: "utf8",
+      env,
+    });
+  run();
+  run();
+
+  const bindir = join(home, ".npm-global/bin");
+  const fishrc = readFileSync(join(home, ".config/fish/config.fish"), "utf8");
+  const occurrences = fishrc.split(`fish_add_path ${bindir}`).length - 1;
+  assert.equal(occurrences, 1, "the PATH line must appear exactly once after two runs");
 });
 
 test("no /etc/os-release equivalent readable is a hard stop", () => {

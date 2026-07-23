@@ -82,9 +82,55 @@ case "$FAMILY" in
   arch)   command -v pacman >/dev/null 2>&1 || FAMILY="" ;;
 esac
 
+# --- npm per-user prefix and PATH persistence -------------------------------
+# A distro-packaged Node leaves npm's global prefix at /usr/local, which is
+# root-owned: `npm install -g` dies with EACCES. Installing under sudo instead
+# would leave root-owned files in $HOME's npm cache and break later self-updates,
+# so point npm at a per-user prefix - the same shape nvm-installed Node already
+# has - and put its bin dir on PATH. Defined up here, above the test hook below,
+# so the suite can exercise persist_npm_path without running the real installer.
+NPM_USER_PREFIX="$HOME/.npm-global"
+
+# Add one PATH line to a profile file, unless $needle already appears in it.
+# Creates the profile's parent directory (fish keeps its config a few levels down).
+_persist_path_line() {
+  local profile="$1" line="$2" needle="$3"
+  if [ -f "$profile" ] && grep -qF "$needle" "$profile"; then
+    info "already on PATH   $needle (via $profile)"
+    return
+  fi
+  mkdir -p "$(dirname "$profile")"
+  printf '\n# added by mla-pi install.sh: npm global installs without sudo\n%s\n' "$line" >>"$profile"
+  info "added to PATH     $needle (in $profile - open a new shell to pick it up)"
+}
+
+# Put $NPM_USER_PREFIX/bin on PATH for every shell the user actually has, not just
+# the one named by $SHELL. $SHELL is the login shell from /etc/passwd - commonly
+# bash even for someone who runs fish or zsh interactively - so keying off it alone
+# stranded `pi` off-PATH for exactly those users. A shell counts as present if its
+# binary is installed or it already has a config file; if none match, fall back to
+# ~/.profile so at least a POSIX login shell picks it up.
+persist_npm_path() {
+  local bindir="$NPM_USER_PREFIX/bin" posix_line wrote_any=0
+  posix_line="export PATH=\"$bindir:\$PATH\""
+
+  if command -v bash >/dev/null 2>&1 || [ -f "$HOME/.bashrc" ]; then
+    _persist_path_line "$HOME/.bashrc" "$posix_line" "$bindir"; wrote_any=1
+  fi
+  if command -v zsh >/dev/null 2>&1 || [ -f "$HOME/.zshrc" ]; then
+    _persist_path_line "$HOME/.zshrc" "$posix_line" "$bindir"; wrote_any=1
+  fi
+  if command -v fish >/dev/null 2>&1 || [ -f "$HOME/.config/fish/config.fish" ]; then
+    _persist_path_line "$HOME/.config/fish/config.fish" "fish_add_path $bindir" "$bindir"; wrote_any=1
+  fi
+
+  [ "$wrote_any" -eq 1 ] || _persist_path_line "$HOME/.profile" "$posix_line" "$bindir"
+}
+
 # Test hook: sourcing this file with MLA_PI_TEST_SOURCE=1 stops here, after
 # platform detection but before anything installs or prompts, so a test can
-# inspect $FAMILY/$OS_ID/$IS_WSL under a fake /etc/os-release and PATH.
+# inspect $FAMILY/$OS_ID/$IS_WSL under a fake /etc/os-release and PATH, and can
+# call the PATH-persistence helpers defined just above.
 if [ "${MLA_PI_TEST_SOURCE:-}" = "1" ]; then
   # shellcheck disable=SC2317  # reachable when sourced; exit is the direct-run fallback
   return 0 2>/dev/null || exit 0
@@ -156,13 +202,9 @@ fi
 # ------------------------------------------------------------------- 3. pi
 section "pi coding agent"
 
-# A distro-packaged Node leaves npm's global prefix at /usr/local, which is
-# root-owned: `npm install -g` dies with EACCES. Installing under sudo instead
-# would leave root-owned files in $HOME's npm cache and break later self-updates,
-# so point npm at a per-user prefix - the same shape nvm-installed Node already
-# has - and put its bin dir on PATH for the rest of this run.
-NPM_USER_PREFIX="$HOME/.npm-global"
-
+# NPM_USER_PREFIX and persist_npm_path are defined near the top of this script
+# (with the rationale); npm_prefix_writable stays here, next to the one caller
+# that consults it.
 npm_prefix_writable() {
   local prefix="$1"
   [ -n "$prefix" ] || return 1
@@ -173,29 +215,6 @@ npm_prefix_writable() {
     while [ ! -e "$dir" ] && [ "$dir" != "/" ]; do dir="$(dirname "$dir")"; done
     [ -w "$dir" ] || return 1
   done
-}
-
-# Appends the PATH line for $NPM_USER_PREFIX/bin to the profile of whichever
-# shell the user actually logs into, so `pi` survives this terminal.
-persist_npm_path() {
-  local shell_name profile line
-  shell_name="$(basename "${SHELL:-sh}")"
-  case "$shell_name" in
-    fish)
-      profile="$HOME/.config/fish/config.fish"
-      line="fish_add_path $NPM_USER_PREFIX/bin"
-      mkdir -p "$(dirname "$profile")"
-      ;;
-    zsh)  profile="$HOME/.zshrc";  line="export PATH=\"$NPM_USER_PREFIX/bin:\$PATH\"" ;;
-    bash) profile="$HOME/.bashrc"; line="export PATH=\"$NPM_USER_PREFIX/bin:\$PATH\"" ;;
-    *)    profile="$HOME/.profile"; line="export PATH=\"$NPM_USER_PREFIX/bin:\$PATH\"" ;;
-  esac
-  if [ -f "$profile" ] && grep -qF "$NPM_USER_PREFIX/bin" "$profile"; then
-    info "already on PATH   $NPM_USER_PREFIX/bin (via $profile)"
-    return
-  fi
-  printf '\n# added by mla-pi install.sh: npm global installs without sudo\n%s\n' "$line" >>"$profile"
-  info "added to PATH     $NPM_USER_PREFIX/bin (in $profile - open a new shell to pick it up)"
 }
 
 if command -v pi >/dev/null 2>&1; then
