@@ -5,6 +5,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
+import { REPO } from "./support/harness.mjs";
 import {
   buildMascotLines,
   mascotCanvasSize,
@@ -188,4 +193,53 @@ test("respects a colorMode passed through from the caller", () => {
   const lines = buildSplashLines({ ...baseArgs, width: NARROW_WIDTH + 15, colorMode: "256color" });
   assert.ok(!lines.some((l) => l.includes("38;2;")), "should not emit truecolor escapes");
   assert.ok(lines.some((l) => l.includes("38;5;")), "should emit 256-color escapes");
+});
+
+// -------------------------------------------------- extension <-> pi package API
+// scripts/session-splash.mjs (everything above) is pure and pi-agnostic. The glue
+// in extensions/session-splash.js imports named symbols from the pi package, and pi
+// only re-exports a subset of its config helpers from the package entry point - a
+// name that exists in pi's source but isn't re-exported (getAuthPath/getSettingsPath
+// were exactly this) is a link-time error that silently disables the whole splash
+// and drops back to pi's built-in header. This guards that seam by reading the
+// extension's real import list and checking the installed pi actually exports each
+// name. Skips when pi isn't installed globally, same rule as the shellcheck test.
+
+/** The identifiers extensions/session-splash.js imports from the pi package. */
+function importedPiNames() {
+  const src = readFileSync(join(REPO, "extensions", "session-splash.js"), "utf8");
+  const m = src.match(/import\s*\{([^}]*)\}\s*from\s*["']@earendil-works\/pi-coding-agent["']/);
+  assert.ok(m, "could not find the pi-package import in extensions/session-splash.js");
+  return m[1]
+    .split(",")
+    .map((s) => s.trim().split(/\s+as\s+/)[0].trim()) // drop any `x as y` alias
+    .filter(Boolean);
+}
+
+/** file:// entry point of the globally installed pi package, or null if not installed. */
+function installedPiEntry() {
+  let root;
+  try {
+    root = execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim();
+  } catch {
+    return null;
+  }
+  const dir = join(root, "@earendil-works", "pi-coding-agent");
+  if (!existsSync(join(dir, "package.json"))) return null;
+  const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+  const entry = pkg.exports?.["."]?.import ?? pkg.main;
+  return pathToFileURL(join(dir, entry)).href;
+}
+
+test("every symbol the splash extension imports from pi is exported by the installed pi", async (t) => {
+  const entry = installedPiEntry();
+  if (!entry) return t.skip("pi is not installed globally on this machine");
+
+  const ns = await import(entry);
+  const missing = importedPiNames().filter((name) => !(name in ns));
+  assert.deepEqual(
+    missing,
+    [],
+    `the installed pi does not export: ${missing.join(", ")} - the splash extension would fail to load`,
+  );
 });

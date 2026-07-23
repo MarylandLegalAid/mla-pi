@@ -14,8 +14,13 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { VERSION, getAuthPath, getSettingsPath } from "@earendil-works/pi-coding-agent";
+// getAgentDir is the only path helper the package re-exports from its entry point;
+// getAuthPath/getSettingsPath exist in pi's config module but are NOT re-exported,
+// so importing them by name is a link-time error that silently disables the splash.
+// Derive both files from getAgentDir() the same way pi does internally.
+import { VERSION, getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
   buildSplashLines,
   formatModelLine,
@@ -77,11 +82,12 @@ export default function (pi) {
     try {
       if (ctx.mode !== "tui") return;
 
-      const settings = readJson(getSettingsPath());
+      const agentDir = getAgentDir();
+      const settings = readJson(join(agentDir, "settings.json"));
       if (settings?.quietStartup) return;
 
       const pkg = readJson(PKG_PATH);
-      const auth = readJson(getAuthPath());
+      const auth = readJson(join(agentDir, "auth.json"));
 
       const name = gitConfig("user.name", ctx.cwd);
       const model = ctx.model;
