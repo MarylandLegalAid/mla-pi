@@ -65,6 +65,12 @@ test("an unknown letter is skipped rather than throwing", () => {
   assert.doesNotThrow(() => buildMascotLines("PIZ4MLA", { colorMode: "truecolor" }));
 });
 
+test("glyph lookup is case-insensitive: pi4MLA and PI4MLA render identically", () => {
+  const mixed = buildMascotLines("pi4MLA", { colorMode: "truecolor" });
+  const upper = buildMascotLines("PI4MLA", { colorMode: "truecolor" });
+  assert.deepEqual(mixed, upper);
+});
+
 test("both truecolor and 256color modes render the same silhouette", () => {
   const tc = buildMascotLines("PI4MLA", { colorMode: "truecolor" }).map(stripAnsi);
   const c256 = buildMascotLines("PI4MLA", { colorMode: "256color" }).map(stripAnsi);
