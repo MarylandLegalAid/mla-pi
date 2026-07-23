@@ -14,18 +14,26 @@ export function visibleWidth(str) {
 }
 
 // ------------------------------------------------------- pi4mla wordmark: pixel art
-// A hand-authored 7-row bitmap per letter (thick, chunky strokes - a display
-// wordmark, not real lowercase/uppercase metrics), composited with an
-// outline pass, a top bevel highlight, a top-to-bottom gradient fill, and an
-// offset drop shadow, then set on its own dark "badge" background so it reads
-// clearly regardless of the user's pi theme (light or dark).
-// Strokes are 3 cells wide on purpose: a 2-wide stroke has no cell with filled
-// neighbors on every side, so the outline pass (below) would claim the entire
-// glyph and no gradient/highlight would ever show through.
-const GLYPH_HEIGHT = 9;
+// A hand-authored 11-row bitmap per letter (thick, chunky strokes - a display
+// wordmark, not real lowercase/uppercase metrics), composited with an outline
+// pass, a specular top-bevel highlight, a vertical white-cyan -> azure -> deep
+// blue gradient fill, and an offset drop-shadow extrusion, then set on its own
+// dark "badge" background so it reads clearly regardless of the user's pi theme.
+//
+// To match the reference wordmark the "p" and "i" are lowercase: "p" is a full
+// bowl-and-stem, and "i" is a stem with its own square dot floating clear above
+// it. The dot floats because a 3-row gap separates it from the stem - anything
+// less and the two outline rings touch and the dot fuses to the stem.
+//
+// Only filled cells ever show gradient/highlight; empty cells adjacent to the
+// silhouette become the outline. So counters (interior holes) read as a dark
+// recess unless they are at least 3x3, in which case their center shows badge.
+const GLYPH_HEIGHT = 11;
 const GLYPHS = {
-  P: [
+  p: [
+    "########.",
     "#########",
+    "###...###",
     "###...###",
     "###...###",
     "#########",
@@ -35,13 +43,27 @@ const GLYPHS = {
     "###......",
     "###......",
   ],
-  I: ["#####", ".###.", ".###.", ".###.", ".###.", ".###.", ".###.", ".###.", "#####"],
+  i: [
+    ".###.",
+    ".###.",
+    ".....",
+    ".....",
+    ".....",
+    ".###.",
+    ".###.",
+    ".###.",
+    ".###.",
+    ".###.",
+    ".###.",
+  ],
   4: [
     "###...###",
     "###...###",
     "###...###",
     "###...###",
+    "###...###",
     "#########",
+    "......###",
     "......###",
     "......###",
     "......###",
@@ -57,13 +79,29 @@ const GLYPHS = {
     "###.....###",
     "###.....###",
     "###.....###",
+    "###.....###",
+    "###.....###",
   ],
-  L: ["###....", "###....", "###....", "###....", "###....", "###....", "###....", "###....", "#######"],
+  L: [
+    "###....",
+    "###....",
+    "###....",
+    "###....",
+    "###....",
+    "###....",
+    "###....",
+    "###....",
+    "###....",
+    "###....",
+    "#######",
+  ],
   A: [
     "....###....",
     "...#####...",
     "..##...##..",
     ".###...###.",
+    "###.....###",
+    "###########",
     "###########",
     "###.....###",
     "###.....###",
@@ -77,21 +115,37 @@ const SHADOW_DX = 3;
 
 const PALETTE = {
   bg: { rgb: { r: 12, g: 42, b: 115 }, code256: 18 },
-  fillTop: { rgb: { r: 170, g: 235, b: 250 }, code256: 123 },
-  fillBottom: { rgb: { r: 40, g: 160, b: 230 }, code256: 39 },
-  highlight: { rgb: { r: 245, g: 253, b: 255 }, code256: 231 },
-  outline: { rgb: { r: 2, g: 4, b: 10 }, code256: 232 },
-  // Distinct from both outline (near-black) and bg (medium navy), so the
-  // offset shadow reads as its own layer instead of vanishing into one or the other.
-  shadow: { rgb: { r: 6, g: 18, b: 52 }, code256: 24 },
+  // The vertical fill runs through three stops: an icy white-cyan just under the
+  // specular highlight, a saturated azure through the middle, and a deep royal
+  // blue at the bottom - the glossy, high-contrast blue of the reference.
+  fillTop: { rgb: { r: 198, g: 244, b: 255 }, code256: 195 },
+  fillMid: { rgb: { r: 48, g: 165, b: 246 }, code256: 39 },
+  fillBottom: { rgb: { r: 18, g: 74, b: 200 }, code256: 26 },
+  highlight: { rgb: { r: 248, g: 253, b: 255 }, code256: 231 },
+  // Near-black navy, not pure black: a hair of blue keeps the ring reading as
+  // part of the glossy blue letterform rather than a flat black cutout.
+  outline: { rgb: { r: 5, g: 10, b: 30 }, code256: 232 },
+  // A darker, saturated blue for the offset extrusion - distinct from both the
+  // outline (near-black) and the bg (medium navy) so it reads as its own raised
+  // side wall instead of vanishing into either.
+  shadow: { rgb: { r: 8, g: 24, b: 82 }, code256: 17 },
 };
 
 const lerp = (a, b, t) => Math.round(a + (b - a) * t);
-const gradientRgb = (t) => ({
-  r: lerp(PALETTE.fillTop.rgb.r, PALETTE.fillBottom.rgb.r, t),
-  g: lerp(PALETTE.fillTop.rgb.g, PALETTE.fillBottom.rgb.g, t),
-  b: lerp(PALETTE.fillTop.rgb.b, PALETTE.fillBottom.rgb.b, t),
-});
+// Two-segment vertical gradient: fillTop -> fillMid over the upper half,
+// fillMid -> fillBottom over the lower half (t in [0,1], top to bottom).
+const gradientRgb = (t) => {
+  const [a, b, u] = t < 0.5
+    ? [PALETTE.fillTop, PALETTE.fillMid, t / 0.5]
+    : [PALETTE.fillMid, PALETTE.fillBottom, (t - 0.5) / 0.5];
+  return {
+    r: lerp(a.rgb.r, b.rgb.r, u),
+    g: lerp(a.rgb.g, b.rgb.g, u),
+    b: lerp(a.rgb.b, b.rgb.b, u),
+  };
+};
+const gradientCode256 = (t) =>
+  t < 0.34 ? PALETTE.fillTop.code256 : t < 0.67 ? PALETTE.fillMid.code256 : PALETTE.fillBottom.code256;
 
 /** One character cell: `fg` on the badge background, color-mode aware. */
 function cell(fg, colorMode, ch) {
@@ -114,9 +168,14 @@ function bgCell(colorMode, ch = " ") {
 // silhouette, then the drop shadow traces the outer edge of ring-plus-fill.
 const OUTLINE_PAD = 1;
 
+// Look a character up case-insensitively so callers may pass "pi4MLA" or
+// "PI4MLA" and land on the same authored glyph (the map keys carry the
+// intended case: lowercase p/i, uppercase M/L/A).
+const glyphFor = (ch) => GLYPHS[ch] ?? GLYPHS[ch.toLowerCase()] ?? GLYPHS[ch.toUpperCase()];
+
 function silhouette(word) {
-  const letters = word.toUpperCase().split("");
-  const glyphs = letters.map((ch) => GLYPHS[ch]).filter(Boolean);
+  const letters = word.split("");
+  const glyphs = letters.map(glyphFor).filter(Boolean);
   const letterWidths = glyphs.map((g) => g[0].length);
   const width = letterWidths.reduce((a, b) => a + b, 0) + GLYPH_GAP * Math.max(0, glyphs.length - 1);
 
@@ -172,11 +231,14 @@ export function buildMascotLines(word, { colorMode = "truecolor", padTo } = {}) 
     for (let canvasC = 0; canvasC < canvasWidth; canvasC++) {
       const c = canvasC - OUTLINE_PAD;
       if (isFilled(r, c)) {
-        if (r <= 1) {
+        // Specular top bevel: the topmost cell of every vertical run (the top
+        // edge of the silhouette, including internal edges like the A crossbar)
+        // catches a near-white highlight; everything below it takes the fill.
+        if (!isFilled(r - 1, c)) {
           line += cell(PALETTE.highlight, colorMode, "█");
         } else {
-          const t = (r - 2) / Math.max(1, GLYPH_HEIGHT - 1 - 2);
-          const fg = { rgb: gradientRgb(t), code256: t < 0.5 ? PALETTE.fillTop.code256 : PALETTE.fillBottom.code256 };
+          const t = r / (GLYPH_HEIGHT - 1);
+          const fg = { rgb: gradientRgb(t), code256: gradientCode256(t) };
           line += cell(fg, colorMode, "█");
         }
       } else if (isNearFilled(r, c)) {
@@ -234,7 +296,7 @@ export function packagesStatusLine({ missing = [] } = {}) {
 
 // ------------------------------------------------------------------- box drawing
 // A few columns wider than the wordmark itself, so the badge never gets sliced.
-const LEFT_WIDTH = Math.max(36, mascotCanvasSize("PI4MLA").width);
+const LEFT_WIDTH = Math.max(36, mascotCanvasSize("pi4MLA").width);
 const MIN_RIGHT_WIDTH = 26; // enough for "Getting started" plus reasonably short tip wraps
 const BOX_OVERHEAD = 7; // "│ " + " │ " + " │" around the two columns
 // Below this, the boxed two-column layout would squeeze the right column
@@ -301,7 +363,7 @@ export function buildSplashLines({
   const leftWidth = LEFT_WIDTH;
   const rightWidth = innerWidth - leftWidth - 3; // " │ " column divider
 
-  const mascotLines = buildMascotLines("PI4MLA", { colorMode, padTo: leftWidth });
+  const mascotLines = buildMascotLines("pi4MLA", { colorMode, padTo: leftWidth });
   const leftLines = [...mascotLines, "", welcome, "", modelLine, cwdLine];
 
   const rightLines = [...wrapToWidth(HEADING_TIPS, rightWidth)];
