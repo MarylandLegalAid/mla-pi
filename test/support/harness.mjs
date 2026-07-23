@@ -9,7 +9,7 @@ import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, ex
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 export const REPO = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
@@ -128,15 +128,22 @@ export function fakeHome({ name, email } = {}) {
 /**
  * Run a script. Never throws on a non-zero exit - the exit code is usually the
  * thing under test - so every caller must assert on `code` explicitly.
+ *
+ * `env` merges on top of the real process.env (so ambient vars a caller
+ * didn't mention still pass through) - pass a key as `undefined` to strip it
+ * instead, for a test that must guarantee a var (e.g. NO_COLOR) is absent
+ * regardless of what the ambient environment happens to set.
  */
 export function run(script, args = [], { cwd = REPO, env = {}, binDir = null } = {}) {
   const path = binDir ? `${binDir}:${process.env.PATH}` : process.env.PATH;
+  const merged = { ...process.env, PATH: path, ...env };
+  for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k];
   try {
     const stdout = execFileSync(process.execPath, [script, ...args], {
       cwd,
       encoding: "utf8",
       timeout: 60_000,
-      env: { ...process.env, PATH: path, ...env },
+      env: merged,
       stdio: ["ignore", "pipe", "pipe"],
     });
     return { code: 0, stdout, stderr: "" };
@@ -151,6 +158,49 @@ export function run(script, args = [], { cwd = REPO, env = {}, binDir = null } =
 
 /** Combined output, for assertions that do not care which stream carried it. */
 export const out = (r) => `${r.stdout}${r.stderr}`;
+
+/**
+ * Spawn a script, send `signal` (default SIGINT) the moment it produces its
+ * first stdout output, and collect everything up to exit. There is no real
+ * TTY in a test run, so this is how cursor-restoration-on-interrupt behavior
+ * gets exercised: `execFileSync`'s `run()` above blocks until the child
+ * exits, which is no good for "kill it partway through." Rejects (after
+ * force-killing the child) if it doesn't exit within `timeoutMs` of being
+ * signaled, so a bug that swallows the signal fails the test instead of
+ * hanging the suite.
+ */
+export function spawnKillOnFirstOutput(script, args = [], { signal = "SIGINT", env = {}, cwd = REPO, timeoutMs = 5000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const merged = { ...process.env, ...env };
+    for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k];
+    const child = spawn(process.execPath, [script, ...args], { cwd, env: merged });
+    let stdout = "";
+    let stderr = "";
+    let signaled = false;
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`spawnKillOnFirstOutput: child did not exit within ${timeoutMs}ms of ${signal}`));
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (!signaled) {
+        signaled = true;
+        child.kill(signal);
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", (code, sig) => {
+      clearTimeout(timer);
+      resolve({ code, signal: sig, stdout, stderr });
+    });
+  });
+}
 
 export const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
 export const exists = existsSync;

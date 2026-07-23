@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "text": "pi4MLA",
+  "font": {
+    "name": "Terrace",
+    "file": "fonts/Terrace.flf",
+    "layoutMode": "fullwidth"
+  },
+  "defaultScheme": "dark",
+  "schemes": {
+    "dark": {
+      "outline": [250, 251, 255],
+      "stops": [
+        [94, 168, 245],
+        [46, 116, 214],
+        [21, 66, 148]
+      ]
+    },
+    "light": {
+      "outline": [8, 10, 16],
+      "stops": [
+        [176, 214, 250],
+        [94, 160, 230],
+        [48, 108, 190]
+      ]
+    }
+  },
+  "dither": {
+    "matrix": "bayer4x4"
+  },
+  "animation": {
+    "durationMs": 1200,
+    "fps": 20
+  },
+  "minColumns": 90
+}

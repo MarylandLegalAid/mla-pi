@@ -61,14 +61,18 @@ test("padTo narrower than the natural size is ignored, not truncated", () => {
   assert.equal(visibleWidth(lines[0]), base);
 });
 
-test("an unknown letter is skipped rather than throwing", () => {
-  assert.doesNotThrow(() => buildMascotLines("PIZ4MLA", { colorMode: "truecolor" }));
+test("a character outside the FIGlet font's parsed range is skipped rather than throwing", () => {
+  assert.doesNotThrow(() => buildMascotLines("PI☃4MLA", { colorMode: "truecolor" }));
 });
 
-test("glyph lookup is case-insensitive: pi4MLA and PI4MLA render identically", () => {
+// The wordmark is now a real FIGlet font (scripts/splash/fonts/Terrace.flf),
+// which - unlike the old hand-authored bitmap - has genuinely distinct
+// upper/lowercase glyphs, so rendering is case-sensitive by design; see
+// scripts/splash/figlet-format.mjs's module comment.
+test("rendering is case-sensitive: pi4MLA and PI4MLA differ", () => {
   const mixed = buildMascotLines("pi4MLA", { colorMode: "truecolor" });
   const upper = buildMascotLines("PI4MLA", { colorMode: "truecolor" });
-  assert.deepEqual(mixed, upper);
+  assert.notDeepEqual(mixed, upper);
 });
 
 test("both truecolor and 256color modes render the same silhouette", () => {
@@ -185,7 +189,11 @@ test("the box includes both section headings verbatim, for the extension's color
 test("the mascot is never truncated inside the box, at a normal or narrow-but-boxed width", () => {
   for (const width of [NARROW_WIDTH, NARROW_WIDTH + 15, MAX_BOX_WIDTH]) {
     const lines = buildSplashLines({ ...baseArgs, width }).map(stripAnsi);
-    const mascotRows = buildMascotLines("PI4MLA", { colorMode: "truecolor" }).map(stripAnsi);
+    // buildSplashLines always renders the literal "pi4MLA" (see its call to
+    // buildMascotLines below) - rendering is case-sensitive now (real FIGlet
+    // glyphs, not the old case-folded hand-authored bitmap), so this must
+    // match that exact case to compare like with like.
+    const mascotRows = buildMascotLines("pi4MLA", { colorMode: "truecolor" }).map(stripAnsi);
     for (const glyphRow of mascotRows) {
       assert.ok(
         lines.some((l) => l.includes(glyphRow)),

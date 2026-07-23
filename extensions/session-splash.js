@@ -27,9 +27,11 @@ import {
   shortenPath,
   authStatusLine,
   packagesStatusLine,
+  loadSplashConfig,
   HEADING_TIPS,
   HEADING_STATUS,
 } from "../scripts/session-splash.mjs";
+import { frameCount, phaseForTick, tickIntervalMs } from "../scripts/splash/render-core.mjs";
 
 const PKG_PATH = fileURLToPath(new URL("../package.json", import.meta.url));
 
@@ -63,6 +65,15 @@ function findMissingPackages(settings) {
   );
 }
 
+// pi detects the terminal's background on first run and stores "dark" or
+// "light" (or a custom theme name) as settings.theme (see pi's docs/themes.md).
+// A custom theme's own light/dark-ness isn't exposed to extensions, so this
+// falls back to "dark" for anything other than a literal "light" - the same
+// default pi itself uses.
+function wordmarkScheme(settings) {
+  return settings?.theme === "light" ? "light" : "dark";
+}
+
 /** Color specific known text runs, then all box-drawing characters. ANSI-safe: every replace targets an exact substring, so it never disturbs the padding already computed in buildSplashLines. */
 function colorize(lines, theme, { title, headings, welcome }) {
   return lines.map((line) => {
@@ -78,9 +89,25 @@ function colorize(lines, theme, { title, headings, welcome }) {
 }
 
 export default function (pi) {
+  // Handle for the startup shimmer-intro's timer (below). Extension factories run
+  // once per pi process, but session_start can fire again within that same
+  // process (/resume, /fork, /model-switch) - session_shutdown is pi's
+  // documented cleanup hook for exactly that, and stopSplashAnimation() is
+  // also called defensively at the top of every session_start in case a
+  // shutdown was skipped, so this timer can never leak or stack.
+  let splashAnimationTimer;
+  const stopSplashAnimation = () => {
+    if (splashAnimationTimer) {
+      clearInterval(splashAnimationTimer);
+      splashAnimationTimer = undefined;
+    }
+  };
+  pi.on("session_shutdown", stopSplashAnimation);
+
   pi.on("session_start", async (_event, ctx) => {
     try {
       if (ctx.mode !== "tui") return;
+      stopSplashAnimation();
 
       const agentDir = getAgentDir();
       const settings = readJson(join(agentDir, "settings.json"));
@@ -111,16 +138,43 @@ export default function (pi) {
           authStatusLine({ hasKey: hasOpenRouterKey(auth) }),
           packagesStatusLine({ missing: findMissingPackages(settings) }),
         ],
+        scheme: wordmarkScheme(settings),
       };
 
-      ctx.ui.setHeader((_tui, theme) => ({
-        render(width) {
-          const colorMode = theme.getColorMode?.() ?? "truecolor";
-          const plain = buildSplashLines({ width, colorMode, ...splashData });
-          return colorize(plain, theme, { title, headings, welcome });
-        },
-        invalidate() {},
-      }));
+      // Brief dither-shimmer intro (~1.2s, per scripts/splash/splash.config.json):
+      // pi's own render loop owns cursor/flicker/scroll handling for a header
+      // component, so this is just an advancing phase fed through
+      // invalidate()+requestRender() on a bounded timer, settling on the
+      // static frame once the configured animation duration elapses.
+      const { config: splashConfig } = loadSplashConfig();
+      const totalFrames = frameCount(splashConfig);
+      let tick = 0;
+      let header;
+
+      ctx.ui.setHeader((tui, theme) => {
+        header = {
+          render(width) {
+            const colorMode = theme.getColorMode?.() ?? "truecolor";
+            const animation = tick < totalFrames ? "shimmer" : "static";
+            const phase = phaseForTick(tick, splashConfig);
+            const plain = buildSplashLines({ width, colorMode, ...splashData, animation, phase });
+            return colorize(plain, theme, { title, headings, welcome });
+          },
+          invalidate() {},
+        };
+
+        splashAnimationTimer = setInterval(() => {
+          tick++;
+          if (tick > totalFrames) {
+            stopSplashAnimation();
+            return;
+          }
+          header.invalidate();
+          tui.requestRender();
+        }, tickIntervalMs(splashConfig));
+
+        return header;
+      });
     } catch {
       // Never break startup over a splash. Built-in header stays in place.
     }

@@ -40,6 +40,7 @@
     "doctor": "node scripts/doctor.mjs",
     "apply-models": "node scripts/apply-models.mjs",
     "suggest-models": "node scripts/suggest-models.mjs",
-    "check-routing": "node scripts/check-routing-fresh.mjs"
+    "check-routing": "node scripts/check-routing-fresh.mjs",
+    "splash": "node scripts/splash-cli.mjs"
   }
 }
